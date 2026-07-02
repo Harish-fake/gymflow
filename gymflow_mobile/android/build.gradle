@@ -1,12 +1,12 @@
 buildscript {
-    ext.kotlin_version = '2.0.20'
+    ext.kotlin_version = '2.0.21'
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.7.0'
+        classpath 'com.android.tools.build:gradle:8.9.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -28,11 +28,4 @@ subprojects {
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
-}
-
-// Required for AGP 9+ compatibility
-gradle.projectsLoaded { g ->
-    g.rootProject.pluginManager.withPlugin("com.android.application") {
-        g.rootProject.android.newDsl = false
-    }
 }
