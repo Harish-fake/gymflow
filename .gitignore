@@ -7,8 +7,8 @@ build/
 .idea/
 *.iml
 .DS_Store
-android/
-ios/
+android/.gradle/
+ios/Pods/
 .codemagic.yaml
 flutter/
 .pub-cache/
