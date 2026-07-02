@@ -9,7 +9,7 @@ class GymFlowApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final router = router_config.createRouter(ref);
+    final router = router_config.createRouter(ref as dynamic);
     final themeMode = ref.watch(themeProvider);
 
     return MaterialApp.router(

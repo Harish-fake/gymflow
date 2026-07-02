@@ -36,9 +36,14 @@ class _MyWorkoutsScreenState extends ConsumerState<MyWorkoutsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now().toIso8601String().substring(0, 10);
-    final todayWorkouts = _workouts.where((w) => w.scheduleDate == today).toList();
-    final upcoming = _workouts.where((w) => w.scheduleDate != null && w.scheduleDate! > today && !w.isCompleted).toList();
+    final todayDate = DateTime.now();
+    final todayStr = todayDate.toIso8601String().substring(0, 10);
+    final todayWorkouts = _workouts.where((w) => w.scheduleDate == todayStr).toList();
+    final upcoming = _workouts.where((w) {
+      if (w.scheduleDate == null || w.isCompleted) return false;
+      final d = DateTime.tryParse(w.scheduleDate!);
+      return d != null && d.isAfter(todayDate);
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('My Workouts')),

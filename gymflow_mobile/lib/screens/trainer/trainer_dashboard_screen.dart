@@ -87,7 +87,7 @@ class _TrainerDashboardScreenState extends ConsumerState<TrainerDashboardScreen>
                       margin: const EdgeInsets.only(bottom: 8),
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: GymFlowColors.primaryBg ?? GymFlowColors.primary.withOpacity(0.1),
+                          backgroundColor: GymFlowColors.primary.withOpacity(0.1),
                           child: Icon(Icons.fitness_center, color: GymFlowColors.primary, size: 20),
                         ),
                         title: Text(w['name'] ?? '', style: Theme.of(context).textTheme.bodyLarge),

@@ -207,7 +207,6 @@ class GymFlowTheme {
         onSurface: GymFlowColors.textPrimary,
       ),
       scaffoldBackgroundColor: GymFlowColors.scaffoldBg,
-      backgroundColor: GymFlowColors.background,
       textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme).copyWith(
         displayLarge: GoogleFonts.montserrat(
           fontSize: 28,

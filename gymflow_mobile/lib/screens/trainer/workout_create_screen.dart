@@ -111,9 +111,9 @@ class _WorkoutCreateScreenState extends ConsumerState<WorkoutCreateScreen> {
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     decoration: const InputDecoration(labelText: 'Assign to Member'),
-                    items: _members.map((m) {
+                    items: _members.map<DropdownMenuItem<String>>((m) {
                       final name = m['profile']?['full_name'] ?? 'Unknown';
-                      return DropdownMenuItem(value: m['user_id'], child: Text(name));
+                      return DropdownMenuItem<String>(value: m['user_id'] as String?, child: Text(name));
                     }).toList(),
                     onChanged: (v) => setState(() => _selectedMemberId = v),
                   ),

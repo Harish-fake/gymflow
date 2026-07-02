@@ -168,8 +168,8 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
           ),
           // Scanning frame
           Center(
-            child: AnimatedBuilder(
-              animation: _pulseAnimation,
+            child: ListenableBuilder(
+              listenable: _pulseAnimation,
               builder: (context, child) {
                 return Transform.scale(
                   scale: _pulseAnimation.value,

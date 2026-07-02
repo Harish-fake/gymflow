@@ -25,7 +25,7 @@ class _MyAttendanceScreenState extends ConsumerState<MyAttendanceScreen> {
     setState(() => _isLoading = true);
     try {
       final result = await _api.getMyAttendance();
-      setState(() => _records = result is List ? result : result['records'] ?? []);
+      setState(() => _records = result);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {

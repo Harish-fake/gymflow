@@ -44,7 +44,7 @@ class ApiService {
     _refreshToken = null;
   }
 
-  Future<Map<String, dynamic>> _request(
+  Future<dynamic> _request(
     String method,
     String path, {
     Map<String, dynamic>? body,
