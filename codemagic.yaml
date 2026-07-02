@@ -16,6 +16,8 @@ workflows:
         - pattern: main
           include: true
     scripts:
+      - name: Generate Android project files
+        script: cd gymflow_mobile && flutter create --platforms android --project-name gymflow_mobile --force .
       - name: Get Flutter packages
         script: cd gymflow_mobile && flutter pub get
       - name: Build Android APK
