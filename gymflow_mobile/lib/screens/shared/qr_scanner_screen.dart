@@ -246,17 +246,3 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
     );
   }
 }
-
-class AnimatedBuilder extends AnimatedWidget {
-  final Widget Function(BuildContext, Widget?) builder;
-  const AnimatedBuilder({
-    super.key,
-    required super.listenable,
-    required this.builder,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return builder(context, null);
-  }
-}
