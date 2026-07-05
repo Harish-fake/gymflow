@@ -166,27 +166,3 @@ export async function sendBulkNotification(req, res) {
     return res.status(500).json({ error: err.message });
   }
 }
-
-export async function deleteNotification(req, res) {
-  try {
-    const { id } = req.params;
-
-    const { data, error } = await supabaseAdmin
-      .from('notifications')
-      .delete()
-      .eq('id', id)
-      .eq('sender_id', req.user.id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    if (!data) {
-      return res.status(404).json({ error: 'Notification not found' });
-    }
-
-    return res.json({ message: 'Notification deleted', data });
-  } catch (err) {
-    console.error('Delete notification error:', err);
-    return res.status(500).json({ error: err.message });
-  }
-}

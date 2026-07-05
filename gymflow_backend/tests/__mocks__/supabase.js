@@ -151,3 +151,6 @@ export function createClient(url, key) {
       }
       return Promise.resolve({ data: null, error: null });
     }),
+  };
+  return client;
+}

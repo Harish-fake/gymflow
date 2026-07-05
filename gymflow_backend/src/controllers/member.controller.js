@@ -302,3 +302,22 @@ export async function renewMembership(req, res) {
         membership_plan_id,
         start_date: newStart.toISOString().split('T')[0],
         end_date: newEnd.toISOString().split('T')[0],
+        status: 'active',
+      })
+      .eq('user_id', member.user_id)
+      .eq('gym_id', member.gym_id)
+      .select()
+      .single();
+
+    if (updateError) return res.status(400).json({ error: updateError.message });
+
+    return res.json({
+      message: 'Membership renewed successfully',
+      payment,
+      member: updated,
+    });
+  } catch (err) {
+    console.error('Renew membership error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}

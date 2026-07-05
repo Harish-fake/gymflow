@@ -45,3 +45,12 @@ export function authorize(...roles) {
     next();
   };
 }
+
+export const requireRole = authorize;
+
+export function requireGymAccess(req, res, next) {
+  if (!req.user?.selected_gym_id) {
+    return res.status(400).json({ error: 'No gym selected' });
+  }
+  next();
+}

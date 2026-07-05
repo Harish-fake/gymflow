@@ -124,3 +124,4 @@ export async function deleteProgress(req, res) {
     console.error('Delete progress error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
+}
