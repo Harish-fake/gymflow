@@ -191,6 +191,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  Future<void> register(Map<String, dynamic> data) async {
+    state = state.copyWith(isLoading: true, error: null, clearError: true);
+    try {
+      final result = await _api.register(
+        data['email'],
+        data['password'],
+        data['full_name'],
+        phone: data['phone'],
+        role: data['role'] ?? 'member',
+      );
+      state = state.copyWith(
+        isLoading: false,
+        isAuthenticated: result['token'] != null,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+      rethrow;
+    }
+  }
+
   Future<void> login(String email, String password) async {
     state = state.copyWith(isLoading: true, error: null, clearError: true);
     try {
