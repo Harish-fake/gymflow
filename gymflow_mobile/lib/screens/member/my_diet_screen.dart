@@ -26,7 +26,7 @@ class _MyDietScreenState extends ConsumerState<MyDietScreen> {
     setState(() => _isLoading = true);
     try {
       final data = await _api.getDiets();
-      setState(() => _diets = data);
+      setState(() => _diets = (data['data'] as List?) ?? []);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {

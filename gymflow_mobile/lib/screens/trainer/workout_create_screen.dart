@@ -45,7 +45,7 @@ class _WorkoutCreateScreenState extends ConsumerState<WorkoutCreateScreen> {
       final exercises = await _api.getExercises();
       setState(() {
         _members = dashboard['assigned_members'] ?? [];
-        _exercises = exercises;
+        _exercises = (exercises['data'] as List?) ?? [];
         _error = null;
         _isLoading = false;
       });

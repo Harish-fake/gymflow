@@ -37,13 +37,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      await ref.read(authProvider.notifier).register(
-            _emailController.text.trim(),
-            _passwordController.text,
-            _nameController.text.trim(),
-            phone: _phoneController.text.trim(),
-            role: _selectedRole,
-          );
+      await ref.read(authProvider.notifier).register({
+            'email': _emailController.text.trim(),
+            'password': _passwordController.text,
+            'full_name': _nameController.text.trim(),
+            'phone': _phoneController.text.trim(),
+            'role': _selectedRole,
+          });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

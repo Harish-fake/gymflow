@@ -164,7 +164,6 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                               borderData: FlBorderData(show: false),
                               gridData: FlGridData(
                                 show: true,
-                                drawVerticalLines: false,
                                 horizontalInterval: 10000,
                                 getDrawingHorizontalLine: (value) => FlLine(
                                   color: GymFlowColors.border.withOpacity(0.3),

@@ -30,7 +30,7 @@ jobs:
       - name: Build APK
         working-directory: gymflow_mobile
         run: |
-          flutter build apk --debug \
+          flutter build apk --debug --android-skip-build-dependency-validation \
             --dart-define=API_BASE_URL=https://gymflow-api-3fh7.onrender.com/api \
             --dart-define=SUPABASE_URL=https://xcxeamroucnokdpilqsd.supabase.co \
             --dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhjeGVhbXJvdWNub2tkcGlscXNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMwMDIxOTksImV4cCI6MjA5ODU3ODE5OX0.Y_A8vnrTqifmonMVQ5Wt1yTJlin5iyQpk0NozAGjZqU

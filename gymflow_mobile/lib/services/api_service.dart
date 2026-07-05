@@ -223,7 +223,7 @@ class ApiService {
         if (response.body.isEmpty) return {};
         final data = jsonDecode(response.body);
         if (method == 'GET') {
-          await CacheService().set(cacheKey, data);
+          CacheService().set(cacheKey, data);
         }
         return data;
       } else {

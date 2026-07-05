@@ -26,7 +26,7 @@ class _PaymentHistoryScreenState extends ConsumerState<PaymentHistoryScreen> {
     setState(() => _isLoading = true);
     try {
       final data = await _api.getPayments();
-      setState(() => _payments = data.map((p) => Payment.fromJson(p)).toList());
+      setState(() => _payments = (data['data'] as List?)?.map((p) => Payment.fromJson(p as Map<String, dynamic>)).toList() ?? []);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {

@@ -3,37 +3,27 @@ import { supabaseAdmin } from '../config/supabase.js';
 export async function listMembers(req, res) {
   try {
     const { gym_id, status, search, page = 1, limit = 20 } = req.query;
+    const gymId = gym_id || req.user.selected_gym_id;
 
     let query = supabaseAdmin
       .from('members')
-      .select('*, user:users!user_id(id, email, phone, avatar_url, is_active, profile:user_profiles(*)), plan:membership_plans(*), trainer:users!assigned_trainer_id(id, email)')
+      .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
 
-    if (gym_id) query = query.eq('gym_id', gym_id);
-    else if (req.user.selected_gym_id) query = query.eq('gym_id', req.user.selected_gym_id);
+    if (gymId) query = query.eq('gym_id', gymId);
     if (status) query = query.eq('status', status);
 
     if (search) {
-      const { data: nameMatches } = await supabaseAdmin
+      const { data: userMatches } = await supabaseAdmin
         .from('users')
         .select('id')
-        .ilike('email', `%${search}%`);
+        .or(`email.ilike.%${search}%,full_name.ilike.%${search}%`);
 
-      const nameMatchIds = nameMatches?.map(u => u.id) || [];
-
-      const { data: profileMatches } = await supabaseAdmin
-        .from('user_profiles')
-        .select('user_id')
-        .ilike('full_name', `%${search}%`);
-
-      const profileMatchIds = profileMatches?.map(u => u.user_id) || [];
-
-      const allMatchIds = [...new Set([...nameMatchIds, ...profileMatchIds])];
-
-      if (allMatchIds.length > 0) {
-        query = query.in('user_id', allMatchIds);
+      const matchIds = userMatches?.map(u => u.id) || [];
+      if (matchIds.length > 0) {
+        query = query.in('user_id', matchIds);
       } else {
-        query = query.in('user_id', ['00000000-0000-0000-0000-000000000000']);
+        return res.json({ members: [], total: 0, page: Number(page) });
       }
     }
 
@@ -42,13 +32,35 @@ export async function listMembers(req, res) {
     query = query.range(from, to);
 
     const { data: members, error, count } = await query;
-
     if (error) throw error;
 
-    return res.json({ members, total: count || members?.length || 0, page: Number(page) });
+    const enrichedMembers = await Promise.all((members || []).map(async (m) => {
+      const { data: user } = await supabaseAdmin
+        .from('users')
+        .select('id, email, phone, is_active')
+        .eq('id', m.user_id)
+        .single();
+      const { data: profile } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', m.user_id)
+        .maybeSingle();
+      const { data: plan } = m.membership_plan_id ? await supabaseAdmin
+        .from('membership_plans')
+        .select('*')
+        .eq('id', m.membership_plan_id)
+        .single() : Promise.resolve({ data: null });
+      return {
+        ...m,
+        user: { ...user, user_profiles: profile },
+        membership_plans: plan,
+      };
+    }));
+
+    return res.json({ data: enrichedMembers, pagination: { total: count || enrichedMembers.length, page: Number(page), limit: Number(limit), totalPages: Math.ceil((count || enrichedMembers.length) / limit) } });
   } catch (err) {
-    console.error('List members error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('List members error:', err.message);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
   }
 }
 
@@ -58,13 +70,29 @@ export async function getMember(req, res) {
 
     const { data: member, error } = await supabaseAdmin
       .from('members')
-      .select('*, user:users!user_id(id, email, phone, avatar_url, is_active, profile:user_profiles(*)), plan:membership_plans(*), trainer:users!assigned_trainer_id(id, email)')
+      .select('*')
       .eq('id', id)
       .single();
 
-    if (error) {
+    if (error || !member) {
       return res.status(404).json({ error: 'Member not found' });
     }
+
+    const { data: user } = await supabaseAdmin
+      .from('users')
+      .select('id, email, phone, is_active')
+      .eq('id', member.user_id)
+      .maybeSingle();
+
+    const { data: profile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', member.user_id)
+      .maybeSingle();
+
+    const { data: planRes } = member.membership_plan_id
+      ? await supabaseAdmin.from('membership_plans').select('*').eq('id', member.membership_plan_id).maybeSingle()
+      : { data: null };
 
     const { data: recentAttendance } = await supabaseAdmin
       .from('attendance')
@@ -77,19 +105,25 @@ export async function getMember(req, res) {
       .from('payments')
       .select('*')
       .eq('user_id', member.user_id)
-      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false })
       .limit(5);
 
-    return res.json({ ...member, recent_attendance: recentAttendance || [], recent_payments: recentPayments || [] });
+    return res.json({
+      ...member,
+      user: { ...(user || {}), user_profiles: profile },
+      membership_plans: planRes,
+      recent_attendance: recentAttendance || [],
+      recent_payments: recentPayments || [],
+    });
   } catch (err) {
-    console.error('Get member error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('Get member error:', err.message);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
   }
 }
 
 export async function createMember(req, res) {
   try {
-    const { email, password, full_name, phone, gym_id, membership_plan_id, start_date, assigned_trainer_id } = req.validated.body;
+    const { email, password, full_name, phone, gym_id, membership_plan_id, start_date, assigned_trainer_id } = req.validated?.body || req.body;
 
     const tempPassword = password || Math.random().toString(36).slice(-8) + 'A1!';
 
@@ -240,7 +274,7 @@ export async function getMemberPayments(req, res) {
       .from('payments')
       .select('*, plan:membership_plans(*)')
       .eq('user_id', member.user_id)
-      .order('payment_date', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
 
@@ -291,7 +325,7 @@ export async function renewMembership(req, res) {
       amount: payAmount,
       method: payment_method,
       status: 'completed',
-      payment_date: new Date().toISOString(),
+      created_at: new Date().toISOString(),
     }).select().single();
 
     if (payError) return res.status(400).json({ error: payError.message });

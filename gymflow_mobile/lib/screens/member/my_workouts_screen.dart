@@ -26,7 +26,7 @@ class _MyWorkoutsScreenState extends ConsumerState<MyWorkoutsScreen> {
     setState(() => _isLoading = true);
     try {
       final data = await _api.getWorkouts();
-      setState(() => _workouts = data.map((w) => Workout.fromJson(w)).toList());
+      setState(() => _workouts = (data['data'] as List?)?.map((w) => Workout.fromJson(w as Map<String, dynamic>)).toList() ?? []);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
