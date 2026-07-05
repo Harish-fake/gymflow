@@ -21,14 +21,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 'stable'
-          channel: 'stable'
-      
-      - name: Cache Flutter dependencies
-        uses: actions/cache@v4
-        with:
-          path: /opt/hostedtoolcache/flutter
-          key: ${{ runner.os }}-flutter-${{ hashFiles('gymflow_mobile/pubspec.lock') }}
+          channel: stable
       
       - name: Install dependencies
         working-directory: gymflow_mobile
