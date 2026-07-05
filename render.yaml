@@ -1,0 +1,52 @@
+services:
+  - type: web
+    name: gymflow-api
+    runtime: node
+    repo: https://github.com/Harish-fake/gymflow
+    rootDir: gymflow_backend
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        value: '*'
+
+  - type: static
+    name: gymflow-admin
+    runtime: static
+    repo: https://github.com/Harish-fake/gymflow
+    rootDir: gymflow_admin
+    region: singapore
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://gymflow-api-3fh7.onrender.com/api
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
