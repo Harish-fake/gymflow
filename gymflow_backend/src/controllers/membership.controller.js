@@ -1,11 +1,11 @@
-import { supabase } from '../config/supabase.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 export async function listPlans(req, res) {
   try {
     const { gym_id, is_active } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('membership_plans')
       .select('*')
       .order('sort_order', { ascending: true });
@@ -27,7 +27,7 @@ export async function getPlan(req, res) {
   try {
     const { id } = req.params;
 
-    const { data: plan, error } = await supabase
+    const { data: plan, error } = await supabaseAdmin
       .from('membership_plans')
       .select('*')
       .eq('id', id)
@@ -46,7 +46,7 @@ export async function createPlan(req, res) {
   try {
     const { gym_id, name, duration_days, price, discounted_price, description, features } = req.validated.body;
 
-    const { data: maxSort } = await supabase
+    const { data: maxSort } = await supabaseAdmin
       .from('membership_plans')
       .select('sort_order')
       .eq('gym_id', gym_id)
@@ -55,7 +55,7 @@ export async function createPlan(req, res) {
 
     const nextSort = (maxSort?.[0]?.sort_order ?? 0) + 1;
 
-    const { data: plan, error } = await supabase
+    const { data: plan, error } = await supabaseAdmin
       .from('membership_plans')
       .insert({ gym_id, name, duration_days, price, discounted_price, description, features: features || [], sort_order: nextSort })
       .select()
@@ -78,7 +78,7 @@ export async function updatePlan(req, res) {
     delete updates.id;
     delete updates.created_at;
 
-    const { data: plan, error } = await supabase
+    const { data: plan, error } = await supabaseAdmin
       .from('membership_plans')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', id)
@@ -98,7 +98,7 @@ export async function deletePlan(req, res) {
   try {
     const { id } = req.params;
 
-    await supabase.from('membership_plans').update({ is_active: false }).eq('id', id);
+    await supabaseAdmin.from('membership_plans').update({ is_active: false }).eq('id', id);
 
     return res.json({ message: 'Plan deactivated' });
   } catch (err) {

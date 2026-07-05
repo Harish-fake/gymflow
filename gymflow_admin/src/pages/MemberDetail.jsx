@@ -8,14 +8,17 @@ export default function MemberDetail() {
   const navigate = useNavigate();
   const [member, setMember] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => { loadMember(); }, [id]);
 
   async function loadMember() {
+    setError(null);
     try {
       const data = await api.getMember(id);
       setMember(data);
     } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Failed to load member');
       console.error(err);
     } finally {
       setLoading(false);
@@ -23,9 +26,10 @@ export default function MemberDetail() {
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" /></div>;
+  if (error) return <div className="card p-6 text-center"><p className="text-red-400 mb-2">{error}</p><button onClick={() => { setLoading(true); setError(null); loadMember(); }} className="btn-outline mt-4">Retry</button></div>;
   if (!member) return <div className="text-dark-400">Member not found</div>;
 
-  const profile = member.profile || {};
+  const profile = member.user?.profile || {};
   const plan = member.plan || {};
 
   return (
@@ -43,7 +47,7 @@ export default function MemberDetail() {
             <h1 className="text-2xl font-bold text-white">{profile.full_name || 'Unknown'}</h1>
             <div className="flex flex-wrap gap-4 mt-3 text-sm text-dark-400">
               <span className="flex items-center gap-1.5"><Mail size={14} /> {member.user?.email}</span>
-              <span className="flex items-center gap-1.5"><Phone size={14} /> {member.user?.phone || 'N/A'}</span>
+              <span className="flex items-center gap-1.5"><Phone size={14} /> {member.user?.profile?.phone || 'N/A'}</span>
               <span className="flex items-center gap-1.5"><Calendar size={14} /> Joined: {member.join_date || 'N/A'}</span>
             </div>
             <div className="mt-3">
@@ -62,7 +66,7 @@ export default function MemberDetail() {
           <div className="space-y-3">
             <div className="flex justify-between py-2 border-b border-dark-700"><span className="text-dark-400">Plan</span><span>{plan.name || 'N/A'}</span></div>
             <div className="flex justify-between py-2 border-b border-dark-700"><span className="text-dark-400">Start Date</span><span>{member.start_date || 'N/A'}</span></div>
-            <div className="flex justify-between py-2 border-b border-dark-700"><span className="text-dark-400">End Date</span><span className={member.isExpiringSoon ? 'text-yellow-500' : ''}>{member.end_date || 'N/A'}</span></div>
+            <div className="flex justify-between py-2 border-b border-dark-700"><span className="text-dark-400">End Date</span><span className={member.end_date && new Date(member.end_date) - new Date() < 7 * 86400000 && new Date(member.end_date) > new Date() ? 'text-yellow-500' : ''}>{member.end_date || 'N/A'}</span></div>
             <div className="flex justify-between py-2"><span className="text-dark-400">Trainer</span><span>{member.trainer?.email || 'Not assigned'}</span></div>
           </div>
         </div>
@@ -81,11 +85,11 @@ export default function MemberDetail() {
         <div className="card">
           <h2 className="text-lg font-semibold text-white mb-4">Recent Attendance</h2>
           <div className="space-y-2">
-            {member.recent_attendance.slice(0, 5).map((a, i) => (
+            {member.recent_attendance.slice(0, 10).map((a, i) => (
               <div key={i} className="flex items-center justify-between py-2 border-b border-dark-700 last:border-0">
-                <span className="text-sm">{a.date}</span>
-                <span className="text-sm text-dark-400">
-                  {a.check_in?.substring(11, 16)} - {a.check_out?.substring(11, 16) || 'In progress'}
+                <span className="text-sm text-dark-300">{a.check_in_time || a.date}</span>
+                <span className={`text-xs font-medium ${a.check_out ? 'text-green-500' : 'text-yellow-500'}`}>
+                  {a.check_out ? 'Checked Out' : 'Checked In'}
                 </span>
               </div>
             ))}

@@ -1,12 +1,12 @@
-import { supabase } from '../config/supabase.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 export async function myNotifications(req, res) {
   try {
     const { unread_only } = req.query;
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('notifications')
-      .select('*, sender:users!sender_id(id, email), sender_profile:user_profiles!sender_id(full_name)')
+      .select('*, sender:users!sender_id(id, email)')
       .eq('recipient_id', req.user.id)
       .order('created_at', { ascending: false })
       .limit(50);
@@ -17,6 +17,19 @@ export async function myNotifications(req, res) {
 
     const { data: notifications, error } = await query;
     if (error) throw error;
+
+    const senderIds = [...new Set(notifications?.map(n => n.sender_id).filter(Boolean) || [])];
+    let senderProfiles = [];
+    if (senderIds.length > 0) {
+      const { data: p } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .in('user_id', senderIds);
+      senderProfiles = p || [];
+    }
+    const sMap = {};
+    senderProfiles.forEach(prof => { sMap[prof.user_id] = prof; });
+    notifications?.forEach(n => { n.sender_profile = sMap[n.sender_id] || null; });
 
     const unreadCount = notifications?.filter((n) => !n.is_read).length || 0;
 
@@ -31,7 +44,7 @@ export async function markRead(req, res) {
   try {
     const { id } = req.params;
 
-    const { data: notification, error } = await supabase
+    const { data: notification, error } = await supabaseAdmin
       .from('notifications')
       .update({ is_read: true, read_at: new Date().toISOString() })
       .eq('id', id)
@@ -56,7 +69,7 @@ export async function sendNotification(req, res) {
       return res.status(400).json({ error: 'recipient_id, title, and body are required' });
     }
 
-    const { data: notification, error } = await supabase.from('notifications').insert({
+    const { data: notification, error } = await supabaseAdmin.from('notifications').insert({
       gym_id: req.user.selected_gym_id,
       sender_id: req.user.id,
       recipient_id,
@@ -74,47 +87,106 @@ export async function sendNotification(req, res) {
   }
 }
 
-export async function sendBulkNotification(req, res) {
+export async function deleteNotification(req, res) {
   try {
-    const { role, title, body, type } = req.body;
+    const { id } = req.params;
 
-    if (!title || !body) {
-      return res.status(400).json({ error: 'title and body are required' });
+    const { data: notif, error: fetchError } = await supabaseAdmin
+      .from('notifications')
+      .select('id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !notif) {
+      return res.status(404).json({ error: 'Notification not found' });
     }
 
-    let query = supabase
-      .from('user_gyms')
-      .select('user_id')
-      .eq('gym_id', req.user.selected_gym_id)
+    const { error } = await supabaseAdmin
+      .from('notifications')
+      .delete()
+      .eq('id', id);
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    return res.json({ message: 'Notification deleted' });
+  } catch (err) {
+    console.error('Delete notification error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+export async function sendBulkNotification(req, res) {
+  try {
+    const { recipient_role, title, body, type } = req.body;
+    const gymId = req.user.selected_gym_id;
+
+    if (!gymId) {
+      return res.status(400).json({ error: 'Gym ID is required' });
+    }
+
+    let query = supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('gym_id', gymId)
       .eq('is_active', true);
 
-    if (role) query = query.eq('role', role);
+    if (recipient_role) {
+      query = query.eq('role', recipient_role);
+    }
 
-    const { data: recipients } = await query;
-
+    const { data: recipients, error: userError } = await query;
+    if (userError) throw userError;
     if (!recipients?.length) {
       return res.status(404).json({ error: 'No recipients found' });
     }
 
-    const notifications = recipients.map((r) => ({
-      gym_id: req.user.selected_gym_id,
+    const notifications = recipients.map(r => ({
+      gym_id: gymId,
       sender_id: req.user.id,
-      recipient_id: r.user_id,
+      recipient_id: r.id,
       title,
       body,
-      type: type || 'announcement',
+      type: type || 'general',
     }));
 
-    const { data: created, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('notifications')
       .insert(notifications)
       .select();
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) throw error;
 
-    return res.status(201).json({ message: `Sent to ${created?.length} recipients`, count: created?.length });
+    return res.status(201).json({
+      message: `Notification sent to ${recipients.length} users`,
+      count: recipients.length,
+      data,
+    });
   } catch (err) {
     console.error('Send bulk notification error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function deleteNotification(req, res) {
+  try {
+    const { id } = req.params;
+
+    const { data, error } = await supabaseAdmin
+      .from('notifications')
+      .delete()
+      .eq('id', id)
+      .eq('sender_id', req.user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) {
+      return res.status(404).json({ error: 'Notification not found' });
+    }
+
+    return res.json({ message: 'Notification deleted', data });
+  } catch (err) {
+    console.error('Delete notification error:', err);
+    return res.status(500).json({ error: err.message });
   }
 }

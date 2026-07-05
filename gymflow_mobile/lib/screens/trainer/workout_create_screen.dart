@@ -22,6 +22,7 @@ class _WorkoutCreateScreenState extends ConsumerState<WorkoutCreateScreen> {
   List<dynamic> _exercises = [];
   List<Map<String, dynamic>> _selectedExercises = [];
   bool _isLoading = true;
+  String? _error;
 
   final _days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -45,10 +46,17 @@ class _WorkoutCreateScreenState extends ConsumerState<WorkoutCreateScreen> {
       setState(() {
         _members = dashboard['assigned_members'] ?? [];
         _exercises = exercises;
+        _error = null;
         _isLoading = false;
       });
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
@@ -86,6 +94,26 @@ class _WorkoutCreateScreenState extends ConsumerState<WorkoutCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_error != null && _members.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Create Workout')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: GymFlowColors.error),
+              const SizedBox(height: 16),
+              Text('Failed to load data', style: Theme.of(context).textTheme.bodyLarge),
+              const SizedBox(height: 8),
+              Text(_error!, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 16),
+              ElevatedButton(onPressed: _load, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Create Workout'),
@@ -183,7 +211,7 @@ class _WorkoutCreateScreenState extends ConsumerState<WorkoutCreateScreen> {
   }
 
   void _showAddExerciseDialog() {
-    final selected = <String>[];
+    final selected = <String>{};
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -218,12 +246,11 @@ class _WorkoutCreateScreenState extends ConsumerState<WorkoutCreateScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
-              for (final id in selected) {
-                final ex = _exercises.firstWhere((e) => e['id'] == id);
-                if (!_selectedExercises.any((s) => s['id'] == id)) {
+              for (final e in _exercises) {
+                if (selected.contains(e['id']) && !_selectedExercises.any((se) => se['id'] == e['id'])) {
                   _selectedExercises.add({
-                    'id': ex['id'],
-                    'name': ex['name'],
+                    'id': e['id'],
+                    'name': e['name'],
                     'sets': 3,
                     'reps': 12,
                     'weight': null,
@@ -240,5 +267,3 @@ class _WorkoutCreateScreenState extends ConsumerState<WorkoutCreateScreen> {
     );
   }
 }
-
-

@@ -1,4 +1,4 @@
-import { supabase } from '../config/supabase.js';
+import { supabaseAdmin } from '../config/supabase.js';
 import { getRazorpay, isRazorpayConfigured } from '../config/razorpay.js';
 import crypto from 'crypto';
 
@@ -7,9 +7,9 @@ export async function listPayments(req, res) {
     const { gym_id, status, method, from, to, page = 1, limit = 50 } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('payments')
-      .select('*, user:users(id, email), profile:user_profiles!user_id(full_name), plan:membership_plans(name)')
+      .select('*, user:users!user_id(id, email), plan:membership_plans(name)')
       .order('payment_date', { ascending: false });
 
     if (targetGym) query = query.eq('gym_id', targetGym);
@@ -24,7 +24,23 @@ export async function listPayments(req, res) {
     const { data: payments, error } = await query;
     if (error) throw error;
 
-    return res.json(payments || []);
+    const userIds = [...new Set(payments?.map(p => p.user_id).filter(Boolean) || [])];
+    let profiles = [];
+    if (userIds.length > 0) {
+      const { data: p } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .in('user_id', userIds);
+      profiles = p || [];
+    }
+    const profileMap = {};
+    profiles.forEach(prof => { profileMap[prof.user_id] = prof; });
+    const result = (payments || []).map(item => ({
+      ...item,
+      profile: profileMap[item.user_id] || null,
+    }));
+
+    return res.json(result);
   } catch (err) {
     console.error('List payments error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -33,7 +49,7 @@ export async function listPayments(req, res) {
 
 export async function myPayments(req, res) {
   try {
-    const { data: payments, error } = await supabase
+    const { data: payments, error } = await supabaseAdmin
       .from('payments')
       .select('*, plan:membership_plans(name)')
       .eq('user_id', req.user.id)
@@ -57,7 +73,7 @@ export async function createPayment(req, res) {
 
     const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
-    const { data: payment, error } = await supabase.from('payments').insert({
+    const { data: payment, error } = await supabaseAdmin.from('payments').insert({
       user_id,
       gym_id: targetGym,
       membership_plan_id,
@@ -67,14 +83,21 @@ export async function createPayment(req, res) {
       status: 'completed',
       invoice_number: invoiceNumber,
       payment_date: new Date().toISOString(),
-    }).select('*, user:users(id, email), profile:user_profiles!user_id(full_name), plan:membership_plans(name)').single();
+    }).select('*, user:users!user_id(id, email), plan:membership_plans(name)').single();
 
     if (error) return res.status(400).json({ error: error.message });
 
+    const { data: profileData } = await supabaseAdmin
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', payment.user_id)
+      .single();
+    payment.profile = profileData || null;
+
     if (membership_plan_id) {
-      const { data: plan } = await supabase.from('membership_plans').select('duration_days').eq('id', membership_plan_id).single();
+      const { data: plan } = await supabaseAdmin.from('membership_plans').select('duration_days').eq('id', membership_plan_id).single();
       if (plan) {
-        const { data: member } = await supabase.from('members').select('id, end_date').eq('user_id', user_id).single();
+        const { data: member } = await supabaseAdmin.from('members').select('id, end_date').eq('user_id', user_id).single();
         if (member) {
           const now = new Date();
           const currentEnd = member.end_date ? new Date(member.end_date) : now;
@@ -82,7 +105,7 @@ export async function createPayment(req, res) {
           const newEnd = new Date(newStart);
           newEnd.setDate(newEnd.getDate() + plan.duration_days);
 
-          await supabase.from('members').update({
+          await supabaseAdmin.from('members').update({
             membership_plan_id,
             start_date: newStart.toISOString().split('T')[0],
             end_date: newEnd.toISOString().split('T')[0],
@@ -112,7 +135,7 @@ export async function createRazorpayOrder(req, res) {
       return res.status(400).json({ error: 'Membership plan ID is required' });
     }
 
-    const { data: plan, error: planError } = await supabase
+    const { data: plan, error: planError } = await supabaseAdmin
       .from('membership_plans')
       .select('*')
       .eq('id', membership_plan_id)
@@ -136,7 +159,7 @@ export async function createRazorpayOrder(req, res) {
     const razorpay = getRazorpay();
     const order = await razorpay.orders.create(options);
 
-    await supabase.from('payments').insert({
+    await supabaseAdmin.from('payments').insert({
       user_id: req.user.id,
       gym_id: req.user.selected_gym_id,
       membership_plan_id,
@@ -176,7 +199,7 @@ export async function verifyRazorpay(req, res) {
       return res.status(400).json({ error: 'Invalid payment signature' });
     }
 
-    const { data: payment } = await supabase
+    const { data: payment } = await supabaseAdmin
       .from('payments')
       .update({
         razorpay_payment_id: payment_id,
@@ -190,9 +213,9 @@ export async function verifyRazorpay(req, res) {
       .single();
 
     if (payment?.membership_plan_id) {
-      const { data: plan } = await supabase.from('membership_plans').select('duration_days').eq('id', payment.membership_plan_id).single();
+      const { data: plan } = await supabaseAdmin.from('membership_plans').select('duration_days').eq('id', payment.membership_plan_id).single();
       if (plan) {
-        const { data: member } = await supabase.from('members').select('id, end_date').eq('user_id', payment.user_id).single();
+        const { data: member } = await supabaseAdmin.from('members').select('id, end_date').eq('user_id', payment.user_id).single();
         if (member) {
           const now = new Date();
           const currentEnd = member.end_date ? new Date(member.end_date) : now;
@@ -200,7 +223,7 @@ export async function verifyRazorpay(req, res) {
           const newEnd = new Date(newStart);
           newEnd.setDate(newEnd.getDate() + plan.duration_days);
 
-          await supabase.from('members').update({
+          await supabaseAdmin.from('members').update({
             membership_plan_id: payment.membership_plan_id,
             start_date: newStart.toISOString().split('T')[0],
             end_date: newEnd.toISOString().split('T')[0],
@@ -223,7 +246,7 @@ export async function paymentReport(req, res) {
     const { gym_id, from, to } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('payments')
       .select('*')
       .eq('status', 'completed');
@@ -264,13 +287,20 @@ export async function getInvoice(req, res) {
   try {
     const { id } = req.params;
 
-    const { data: payment, error } = await supabase
+    const { data: payment, error } = await supabaseAdmin
       .from('payments')
-      .select('*, user:users(id, email), profile:user_profiles!user_id(full_name, address), plan:membership_plans(name), gym:gyms(name, address, phone, email)')
+      .select('*, user:users!user_id(id, email), plan:membership_plans(name), gym:gyms(name, address, phone, email)')
       .eq('id', id)
       .single();
 
     if (error) return res.status(404).json({ error: 'Payment not found' });
+
+    const { data: profileData } = await supabaseAdmin
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', payment.user_id)
+      .single();
+    payment.profile = profileData || null;
 
     return res.json(payment);
   } catch (err) {
@@ -282,19 +312,53 @@ export async function getInvoice(req, res) {
 export async function downloadInvoice(req, res) {
   try {
     const { id } = req.params;
-    const { generateInvoicePdf } = await import('../services/invoice.service.js');
-    const { pdfBuffer, payment } = await generateInvoicePdf(id);
 
-    const invoiceNo = payment.invoice_number || `INV-${id.substring(0, 8)}`;
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${invoiceNo}.pdf"`);
-    res.setHeader('Content-Length', pdfBuffer.length);
-    return res.send(pdfBuffer);
-  } catch (err) {
-    console.error('Download invoice error:', err);
-    if (err.message === 'Payment not found') {
+    const { data: payment, error } = await supabaseAdmin
+      .from('payments')
+      .select('*, user:users!inner(id, email, user_profiles(full_name)), gym:gyms!inner(name, address, city, state, phone)')
+      .eq('id', id)
+      .single();
+
+    if (error || !payment) {
       return res.status(404).json({ error: 'Payment not found' });
     }
-    return res.status(500).json({ error: 'Failed to generate invoice' });
+
+    const { default: PDFDocument } = await import('pdfkit');
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=invoice-${payment.invoice_number || id}.pdf`);
+    doc.pipe(res);
+
+    doc.fontSize(20).text('GymFlow', { align: 'center' });
+    doc.fontSize(16).text('INVOICE', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(10).text(`Invoice #: ${payment.invoice_number || id}`);
+    doc.text(`Date: ${new Date(payment.created_at).toLocaleDateString()}`);
+    doc.text(`Status: ${payment.status}`);
+    doc.moveDown();
+    
+    doc.fontSize(12).text('Bill To:');
+    doc.fontSize(10);
+    doc.text(payment.user?.user_profiles?.full_name || 'Member');
+    doc.text(payment.user?.email);
+    doc.moveDown();
+    
+    doc.fontSize(12).text('Gym:');
+    doc.fontSize(10);
+    doc.text(payment.gym?.name || '');
+    doc.text(`${payment.gym?.address || ''}, ${payment.gym?.city || ''}`);
+    doc.moveDown();
+    
+    doc.fontSize(12).text(`Amount: ₹${payment.amount}`);
+    doc.text(`Payment Method: ${payment.method}`);
+    doc.text(`Razorpay ID: ${payment.razorpay_order_id || 'N/A'}`);
+    
+    doc.end();
+  } catch (err) {
+    console.error('Download invoice error:', err);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: err.message });
+    }
   }
 }

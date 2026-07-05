@@ -301,6 +301,15 @@ CREATE INDEX idx_progress_logs_member_date ON public.progress_logs(member_id, da
 CREATE INDEX idx_notifications_recipient ON public.notifications(recipient_id);
 CREATE INDEX idx_notifications_gym ON public.notifications(gym_id);
 
+-- Additional indexes for performance
+CREATE INDEX IF NOT EXISTS idx_trainers_gym_id ON public.trainers(gym_id);
+CREATE INDEX IF NOT EXISTS idx_trainers_user_id ON public.trainers(user_id);
+CREATE INDEX IF NOT EXISTS idx_exercise_library_gym_id ON public.exercise_library(gym_id);
+CREATE INDEX IF NOT EXISTS idx_diet_plans_gym_id ON public.diet_plans(gym_id);
+CREATE INDEX IF NOT EXISTS idx_diet_plans_member_id ON public.diet_plans(member_id);
+CREATE INDEX IF NOT EXISTS idx_qr_codes_gym_date ON public.qr_codes(gym_id, date);
+CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON public.notifications(recipient_id, is_read);
+
 -- ============================================================
 -- TRIGGER: Auto-create user record when auth user is created
 -- ============================================================
@@ -373,6 +382,10 @@ CREATE TRIGGER update_diet_plans_updated_at
   BEFORE UPDATE ON public.diet_plans
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
+CREATE TRIGGER update_membership_plans_updated_at
+  BEFORE UPDATE ON public.membership_plans
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
 -- ============================================================
 -- FUNCTIONS
 -- ============================================================
@@ -428,7 +441,7 @@ BEGIN
     'days_remaining', CASE WHEN mem.end_date IS NOT NULL THEN (mem.end_date - CURRENT_DATE) ELSE 0 END,
     'this_month_attendance', (SELECT COUNT(*) FROM public.attendance WHERE user_id = p_user_id AND gym_id = p_gym_id AND EXTRACT(MONTH FROM date) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM date) = EXTRACT(YEAR FROM CURRENT_DATE)),
     'today_workout', (SELECT COUNT(*) FROM public.workouts WHERE member_id = p_user_id AND schedule_date = CURRENT_DATE),
-    'last_progress_log', (SELECT row_to_json(pl.*) FROM public.progress_logs pl WHERE member_id = p_user_id ORDER BY date DESC LIMIT 1)
+    'last_progress_log', (SELECT to_jsonb(pl.*) FROM public.progress_logs pl WHERE member_id = p_user_id ORDER BY date DESC LIMIT 1)
   ) INTO result;
   RETURN result;
 END;
@@ -437,6 +450,22 @@ $$ LANGUAGE plpgsql;
 -- ============================================================
 -- ROW LEVEL SECURITY
 -- ============================================================
+
+-- Helper function to check if user has admin role (bypasses RLS via SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION public.is_admin_or_superadmin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.users
+    WHERE id = auth.uid()
+    AND role IN ('admin', 'superadmin')
+    AND is_active = true
+  );
+END;
+$$;
 
 -- Enable RLS on all tables
 ALTER TABLE public.gyms ENABLE ROW LEVEL SECURITY;
@@ -461,7 +490,7 @@ CREATE POLICY users_select_own ON public.users
 
 CREATE POLICY users_select_admin ON public.users
   FOR SELECT USING (
-    auth.uid() IN (SELECT id FROM public.users WHERE role IN ('admin', 'superadmin'))
+    public.is_admin_or_superadmin()
   );
 
 CREATE POLICY users_update_own ON public.users
@@ -470,7 +499,7 @@ CREATE POLICY users_update_own ON public.users
 -- Members: admins see all, trainers see assigned, members see own
 CREATE POLICY members_select_admin ON public.members
   FOR SELECT USING (
-    auth.uid() IN (SELECT id FROM public.users WHERE role IN ('admin', 'superadmin'))
+    public.is_admin_or_superadmin()
   );
 
 CREATE POLICY members_select_trainer ON public.members
@@ -484,7 +513,7 @@ CREATE POLICY members_select_own ON public.members
 -- Attendance: admins see all, users see own
 CREATE POLICY attendance_select_admin ON public.attendance
   FOR SELECT USING (
-    auth.uid() IN (SELECT id FROM public.users WHERE role IN ('admin', 'superadmin'))
+    public.is_admin_or_superadmin()
   );
 
 CREATE POLICY attendance_select_own ON public.attendance
@@ -496,7 +525,7 @@ CREATE POLICY attendance_insert_own ON public.attendance
 -- Payments: admins see all, users see own
 CREATE POLICY payments_select_admin ON public.payments
   FOR SELECT USING (
-    auth.uid() IN (SELECT id FROM public.users WHERE role IN ('admin', 'superadmin'))
+    public.is_admin_or_superadmin()
   );
 
 CREATE POLICY payments_select_own ON public.payments
@@ -524,6 +553,147 @@ CREATE POLICY progress_select_trainer ON public.progress_logs
 -- Notifications: see own
 CREATE POLICY notifications_select_own ON public.notifications
   FOR SELECT USING (recipient_id = auth.uid());
+
+CREATE POLICY notifications_update_own ON public.notifications
+  FOR UPDATE USING (recipient_id = auth.uid());
+
+-- Gyms: all authenticated can view, only admin can update
+CREATE POLICY gyms_select_all ON public.gyms
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY gyms_update_admin ON public.gyms
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+-- User Profiles: own profile management, admin can view all
+CREATE POLICY user_profiles_select_own ON public.user_profiles
+  FOR SELECT USING (user_id = auth.uid());
+
+CREATE POLICY user_profiles_select_admin ON public.user_profiles
+  FOR SELECT USING (public.is_admin_or_superadmin());
+
+CREATE POLICY user_profiles_update_own ON public.user_profiles
+  FOR UPDATE USING (user_id = auth.uid());
+
+-- User-Gyms: view own records, insert on signup, admin can update
+CREATE POLICY user_gyms_select_own ON public.user_gyms
+  FOR SELECT USING (user_id = auth.uid());
+
+CREATE POLICY user_gyms_insert_own ON public.user_gyms
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY user_gyms_update_admin ON public.user_gyms
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+-- Membership Plans: all authenticated can view, admin full control
+CREATE POLICY membership_plans_select_all ON public.membership_plans
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY membership_plans_insert_admin ON public.membership_plans
+  FOR INSERT WITH CHECK (public.is_admin_or_superadmin());
+
+CREATE POLICY membership_plans_update_admin ON public.membership_plans
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+CREATE POLICY membership_plans_delete_admin ON public.membership_plans
+  FOR DELETE USING (public.is_admin_or_superadmin());
+
+-- Trainers: all authenticated can view, admin full control
+CREATE POLICY trainers_select_all ON public.trainers
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY trainers_insert_admin ON public.trainers
+  FOR INSERT WITH CHECK (public.is_admin_or_superadmin());
+
+CREATE POLICY trainers_update_admin ON public.trainers
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+CREATE POLICY trainers_delete_admin ON public.trainers
+  FOR DELETE USING (public.is_admin_or_superadmin());
+
+-- Exercise Library: all authenticated can view, admin/trainer full control
+CREATE POLICY exercise_library_select_all ON public.exercise_library
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY exercise_library_insert_admin ON public.exercise_library
+  FOR INSERT WITH CHECK (public.is_admin_or_superadmin());
+
+CREATE POLICY exercise_library_update_admin ON public.exercise_library
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+CREATE POLICY exercise_library_delete_admin ON public.exercise_library
+  FOR DELETE USING (public.is_admin_or_superadmin());
+
+-- Diet Plans: members see own, trainers see assigned, admin full control
+CREATE POLICY diet_plans_select_own ON public.diet_plans
+  FOR SELECT USING (member_id = auth.uid());
+
+CREATE POLICY diet_plans_select_trainer ON public.diet_plans
+  FOR SELECT USING (trainer_id = auth.uid());
+
+CREATE POLICY diet_plans_select_admin ON public.diet_plans
+  FOR SELECT USING (public.is_admin_or_superadmin());
+
+CREATE POLICY diet_plans_insert_admin ON public.diet_plans
+  FOR INSERT WITH CHECK (public.is_admin_or_superadmin());
+
+CREATE POLICY diet_plans_update_admin ON public.diet_plans
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+CREATE POLICY diet_plans_delete_admin ON public.diet_plans
+  FOR DELETE USING (public.is_admin_or_superadmin());
+
+-- QR Codes: all authenticated can view, admin can insert
+CREATE POLICY qr_codes_select_all ON public.qr_codes
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY qr_codes_insert_admin ON public.qr_codes
+  FOR INSERT WITH CHECK (public.is_admin_or_superadmin());
+
+-- Members: add write policies
+CREATE POLICY members_insert_admin ON public.members
+  FOR INSERT WITH CHECK (public.is_admin_or_superadmin());
+
+CREATE POLICY members_update_admin ON public.members
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+CREATE POLICY members_delete_admin ON public.members
+  FOR DELETE USING (public.is_admin_or_superadmin());
+
+CREATE POLICY members_update_own ON public.members
+  FOR UPDATE USING (user_id = auth.uid());
+
+-- Payments: add write policies
+CREATE POLICY payments_insert_own ON public.payments
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY payments_update_admin ON public.payments
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+-- Workouts: add write policies for trainers and admin
+CREATE POLICY workouts_insert_trainer ON public.workouts
+  FOR INSERT WITH CHECK (trainer_id = auth.uid());
+
+CREATE POLICY workouts_update_trainer ON public.workouts
+  FOR UPDATE USING (trainer_id = auth.uid());
+
+CREATE POLICY workouts_delete_trainer ON public.workouts
+  FOR DELETE USING (trainer_id = auth.uid());
+
+CREATE POLICY workouts_insert_admin ON public.workouts
+  FOR INSERT WITH CHECK (public.is_admin_or_superadmin());
+
+CREATE POLICY workouts_update_admin ON public.workouts
+  FOR UPDATE USING (public.is_admin_or_superadmin());
+
+CREATE POLICY workouts_delete_admin ON public.workouts
+  FOR DELETE USING (public.is_admin_or_superadmin());
+
+-- Progress Logs: add update and delete for own records
+CREATE POLICY progress_update_own ON public.progress_logs
+  FOR UPDATE USING (member_id = auth.uid());
+
+CREATE POLICY progress_delete_own ON public.progress_logs
+  FOR DELETE USING (member_id = auth.uid());
 
 -- ============================================================
 -- SEED DATA: Default gym (ROCKFORT PLANET GYM FITNESS)

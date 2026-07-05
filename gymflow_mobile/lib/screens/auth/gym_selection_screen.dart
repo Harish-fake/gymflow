@@ -12,6 +12,25 @@ class GymSelectionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
 
+    ref.listen<AuthState>(authProvider, (prev, next) {
+      if (next.error != null && next.error != prev?.error) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(next.error!), backgroundColor: Colors.red),
+          );
+          ref.read(authProvider.notifier).clearError();
+        });
+      }
+      if (next.selectedGymId != null && prev?.selectedGymId == null) {
+        final route = next.role == 'trainer'
+            ? '/trainer/dashboard'
+            : next.role == 'member'
+                ? '/member/dashboard'
+                : '/admin/dashboard';
+        context.go(route);
+      }
+    });
+
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -53,9 +72,13 @@ class GymSelectionScreen extends ConsumerWidget {
                       itemCount: authState.gyms.length,
                       itemBuilder: (context, index) {
                         final gym = authState.gyms[index];
-                        return _GymCard(gym: gym, onTap: () async {
-                          await ref.read(authProvider.notifier).selectGym(gym.id, gymName: gym.name);
-                        });
+                        return _GymCard(
+                          gym: gym,
+                          isLoading: authState.isLoading,
+                          onTap: () async {
+                            await ref.read(authProvider.notifier).selectGym(gym.id, gymName: gym.name);
+                          },
+                        );
                       },
                     ),
             ),
@@ -68,15 +91,16 @@ class GymSelectionScreen extends ConsumerWidget {
 
 class _GymCard extends StatelessWidget {
   final Gym gym;
+  final bool isLoading;
   final VoidCallback onTap;
-  const _GymCard({required this.gym, required this.onTap});
+  const _GymCard({required this.gym, this.isLoading = false, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        onTap: onTap,
+        onTap: isLoading ? null : onTap,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -91,7 +115,7 @@ class _GymCard extends StatelessWidget {
                 child: gym.logoUrl != null
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(12),
-                        child: Image.network(gym.logoUrl!, fit: BoxFit.cover),
+                        child: Image.network(gym.logoUrl!, fit: BoxFit.cover, width: 56, height: 56),
                       )
                     : Icon(Icons.fitness_center, color: GymFlowColors.primary, size: 28),
               ),
@@ -100,16 +124,16 @@ class _GymCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(gym.name, style: Theme.of(context).textTheme.titleLarge),
-                    if (gym.city != null) ...[
-                      const SizedBox(height: 4),
-                      Text('${gym.city}${gym.state != null ? ', ${gym.state}' : ''}',
-                          style: Theme.of(context).textTheme.bodySmall),
-                    ],
+                    Text(gym.name, style: Theme.of(context).textTheme.bodyLarge),
+                    if (gym.address != null)
+                      Text(gym.address!, style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: GymFlowColors.textMuted),
+              if (isLoading)
+                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                const Icon(Icons.chevron_right, color: GymFlowColors.textMuted),
             ],
           ),
         ),

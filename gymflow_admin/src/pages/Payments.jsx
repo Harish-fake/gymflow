@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { IndianRupee, Plus, Download } from 'lucide-react';
 import api from '../services/api';
 import Modal from '../components/Modal';
+import Pagination from '../components/Pagination';
 
 export default function Payments() {
   const [payments, setPayments] = useState([]);
@@ -9,6 +11,8 @@ export default function Payments() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ user_id: '', amount: '', method: 'cash', transaction_id: '' });
   const [members, setMembers] = useState([]);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
 
   useEffect(() => { loadPayments(); loadMembers(); }, []);
 
@@ -32,6 +36,9 @@ export default function Payments() {
     }
   }
 
+  const totalPages = Math.ceil(payments.length / limit) || 1;
+  const paginatedPayments = payments.slice((page - 1) * limit, page * limit);
+
   const handleCreate = async (e) => {
     e.preventDefault();
     try {
@@ -40,7 +47,7 @@ export default function Payments() {
       setForm({ user_id: '', amount: '', method: 'cash', transaction_id: '' });
       loadPayments();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed');
+      toast.error(err.response?.data?.error || 'Failed');
     }
   };
 
@@ -77,54 +84,64 @@ export default function Payments() {
         {loading ? (
           <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" /></div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-dark-700">
-                  <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Member</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Amount</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Method</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Plan</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Date</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Status</th>
-                  <th className="text-right px-6 py-4 text-sm font-medium text-dark-400">Invoice</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.length === 0 ? (
-                  <tr><td colSpan="6" className="text-center py-12 text-dark-400">No payments found</td></tr>
-                ) : (
-                  payments.map((p, i) => (
-                    <tr key={p.id || i} className="border-b border-dark-700 hover:bg-dark-800/50">
-                      <td className="px-6 py-4 text-sm text-white">{p.profile?.full_name || p.member_name || 'Member'}</td>
-                      <td className="px-6 py-4 text-sm font-semibold text-white">₹{p.amount?.toLocaleString()}</td>
-                      <td className="px-6 py-4 text-sm text-dark-400">{p.method?.toUpperCase()}</td>
-                      <td className="px-6 py-4 text-sm text-dark-400">{p.plan?.name || '-'}</td>
-                      <td className="px-6 py-4 text-sm text-dark-400">{p.payment_date?.substring(0, 10)}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
-                          p.status === 'completed' ? 'bg-green-500/10 text-green-500' :
-                          p.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
-                          'bg-red-500/10 text-red-500'
-                        }`}>{p.status?.toUpperCase()}</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {p.status === 'completed' && (
-                          <button
-                            onClick={() => api.downloadInvoice(p.id)}
-                            className="text-dark-400 hover:text-primary-500 transition-colors"
-                            title="Download Invoice"
-                          >
-                            <Download size={16} />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-dark-700">
+                    <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Member</th>
+                    <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Amount</th>
+                    <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Method</th>
+                    <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Plan</th>
+                    <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Date</th>
+                    <th className="text-left px-6 py-4 text-sm font-medium text-dark-400">Status</th>
+                    <th className="text-right px-6 py-4 text-sm font-medium text-dark-400">Invoice</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedPayments.length === 0 ? (
+                    <tr><td colSpan="7" className="text-center py-12 text-dark-400">No payments found</td></tr>
+                  ) : (
+                    paginatedPayments.map((p, i) => (
+                      <tr key={p.id || i} className="border-b border-dark-700 hover:bg-dark-800/50">
+                        <td className="px-6 py-4 text-sm text-white">{p.profile?.full_name || p.member_name || 'Member'}</td>
+                        <td className="px-6 py-4 text-sm font-semibold text-white">₹{p.amount?.toLocaleString()}</td>
+                        <td className="px-6 py-4 text-sm text-dark-400">{p.method?.toUpperCase()}</td>
+                        <td className="px-6 py-4 text-sm text-dark-400">{p.plan?.name || '-'}</td>
+                        <td className="px-6 py-4 text-sm text-dark-400">{p.payment_date?.substring(0, 10)}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 rounded-lg text-xs font-medium ${
+                            p.status === 'completed' ? 'bg-green-500/10 text-green-500' :
+                            p.status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
+                            'bg-red-500/10 text-red-500'
+                          }`}>{p.status?.toUpperCase()}</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {p.status === 'completed' && (
+                            <button
+                              onClick={() => api.downloadInvoice(p.id)}
+                              className="text-dark-400 hover:text-primary-500 transition-colors"
+                              title="Download Invoice"
+                            >
+                              <Download size={16} />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={payments.length}
+              onPageChange={setPage}
+              pageSize={limit}
+              onPageSizeChange={(size) => { setLimit(size); setPage(1); }}
+            />
+          </>
         )}
       </div>
 

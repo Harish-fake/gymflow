@@ -5,6 +5,7 @@ import '../../services/api_service.dart';
 import '../../config/theme.dart';
 import '../../widgets/stat_card.dart';
 import '../../widgets/app_shell.dart';
+import '../../providers/auth_provider.dart';
 
 class MemberDashboardScreen extends ConsumerStatefulWidget {
   const MemberDashboardScreen({super.key});
@@ -38,16 +39,15 @@ class _MemberDashboardScreenState extends ConsumerState<MemberDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final authState = ref.watch(authProvider);
     final stats = _data?['stats'] as Map<String, dynamic>?;
     final member = _data?['member'] as Map<String, dynamic>?;
     final todayWorkout = (_data?['today_workout'] as List?) ?? [];
     final recentProgress = (_data?['recent_progress'] as List?) ?? [];
+    final gymName = authState.selectedGymName ?? 'ROCKFORT PLANET GYM FITNESS';
 
     return AppShell(
       title: 'My Dashboard',
-      actions: [
-        IconButton(icon: const Icon(Icons.notifications_outlined), onPressed: () => context.push('/notifications')),
-      ],
       body: RefreshIndicator(
         onRefresh: _load,
         child: SingleChildScrollView(
@@ -75,7 +75,7 @@ class _MemberDashboardScreenState extends ConsumerState<MemberDashboardScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('ROCKFORT PLANET GYM FITNESS',
+                                    Text(gymName,
                                         style: TextStyle(fontSize: 12, color: Colors.white70)),
                                     const SizedBox(height: 4),
                                     Text('Dashboard', style: Theme.of(context).textTheme.displaySmall?.copyWith(color: Colors.white)),
@@ -151,6 +151,16 @@ class _MemberDashboardScreenState extends ConsumerState<MemberDashboardScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: () => context.push('/qr-scanner'),
+                        icon: const Icon(Icons.qr_code_scanner),
+                        label: const Text('Check In with QR'),
+                      ),
+                    ),
                     const SizedBox(height: 24),
                     Text("Today's Workout", style: Theme.of(context).textTheme.headlineLarge),
                     const SizedBox(height: 12),
@@ -203,10 +213,8 @@ class _MemberDashboardScreenState extends ConsumerState<MemberDashboardScreen> {
                                 backgroundColor: GymFlowColors.successBg,
                                 child: Icon(Icons.monitor_weight, color: GymFlowColors.success, size: 20),
                               ),
-                              title: Text('Weight: ${p['weight'] ?? 'N/A'} kg',
-                                  style: Theme.of(context).textTheme.bodyLarge),
-                              subtitle: Text(p['date'] ?? '', style: Theme.of(context).textTheme.bodySmall),
-                              trailing: p['bmi'] != null ? Text('BMI: ${p['bmi']}') : null,
+                              title: Text(p['weight']?.toString() ?? '', style: Theme.of(context).textTheme.bodyLarge),
+                              subtitle: Text(p['date']?.toString().substring(0, 10) ?? ''),
                             ),
                           )),
                   ],

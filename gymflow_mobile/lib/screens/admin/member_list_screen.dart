@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../services/api_service.dart';
 import '../../config/theme.dart';
 import '../../models/member.dart';
+import '../../widgets/app_shell.dart';
 
 class MemberListScreen extends ConsumerStatefulWidget {
   const MemberListScreen({super.key});
@@ -69,16 +70,15 @@ class _MemberListScreenState extends ConsumerState<MemberListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Members'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () => _showAddMemberDialog(),
-          ),
-        ],
-      ),
+    return AppShell(
+      title: 'Members',
+      currentIndex: 1,
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.add),
+          onPressed: () => _showAddMemberDialog(),
+        ),
+      ],
       body: Column(
         children: [
           Padding(
@@ -217,5 +217,7 @@ class _MemberListScreenState extends ConsumerState<MemberListScreen> {
         ),
       ),
     );
+ 
   }
+
 }

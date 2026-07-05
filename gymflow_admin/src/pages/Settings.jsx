@@ -1,27 +1,34 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { Save } from 'lucide-react';
 import api from '../services/api';
 
+const defaultSettings = {
+  gym_name: '',
+  address: '',
+  city: '',
+  state: '',
+  pincode: '',
+  phone: '',
+  email: '',
+};
+
 export default function Settings() {
-  const [settings, setSettings] = useState({
-    gym_name: 'ROCKFORT PLANET GYM FITNESS',
-    address: 'P-60, J K Nagar, K K Nagar',
-    city: 'Tiruchirappalli',
-    state: 'Tamil Nadu',
-    pincode: '620007',
-    phone: '+91 98651 50164',
-    email: 'rockfortplanet@gmail.com',
-  });
+  const [settings, setSettings] = useState({ ...defaultSettings });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => { loadSettings(); }, []);
 
   async function loadSettings() {
+    setLoading(true);
+    setError(null);
     try {
       const data = await api.getSettings();
-      if (data) setSettings({ ...settings, ...data });
+      if (data) setSettings({ ...defaultSettings, ...data });
     } catch (err) {
+      setError(err.response?.data?.error || 'Failed to load settings');
       console.error(err);
     } finally {
       setLoading(false);
@@ -32,15 +39,24 @@ export default function Settings() {
     setSaving(true);
     try {
       await api.updateSettings(settings);
-      alert('Settings saved!');
+      toast.success('Settings saved!');
     } catch (err) {
-      alert('Failed to save settings');
+      toast.error(err.response?.data?.error || 'Failed to save settings');
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" /></div>;
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <p className="text-dark-400">{error}</p>
+        <button onClick={loadSettings} className="btn-primary">Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -85,12 +101,6 @@ export default function Settings() {
             <input type="email" value={settings.email} onChange={(e) => setSettings({ ...settings, email: e.target.value })} className="input-field" />
           </div>
         </div>
-      </div>
-
-      <div className="card">
-        <h2 className="text-lg font-semibold text-white mb-4">GymFlow Platform</h2>
-        <p className="text-sm text-dark-400">Version 1.0.0</p>
-        <p className="text-sm text-dark-400 mt-1">Multi-gym management platform for ROCKFORT PLANET GYM FITNESS</p>
       </div>
     </div>
   );

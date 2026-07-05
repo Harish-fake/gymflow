@@ -57,7 +57,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
       setState(() => _isProcessing = true);
 
       try {
-        final result = await _api.checkIn('', method: 'qr');
+        final authState = ref.read(authProvider);
+        final gymId = authState.selectedGymId ?? '';
+        final result = await _api.checkIn(gymId, method: 'qr');
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -93,7 +95,9 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
   Future<void> _manualCheckIn() async {
     setState(() => _isProcessing = true);
     try {
-      final result = await _api.checkIn('', method: 'manual');
+      final authState = ref.read(authProvider);
+      final gymId = authState.selectedGymId ?? '';
+      final result = await _api.checkIn(gymId, method: 'manual');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -156,7 +160,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
               );
             },
           ),
-          // Scanner overlay
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -166,7 +169,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
               ),
             ),
           ),
-          // Scanning frame
           Center(
             child: ListenableBuilder(
               listenable: _pulseAnimation,
@@ -192,7 +194,6 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
               },
             ),
           ),
-          // Bottom controls
           Positioned(
             left: 0,
             right: 0,
@@ -233,13 +234,10 @@ class _QRScannerScreenState extends ConsumerState<QRScannerScreen>
               ),
             ),
           ),
-          // Processing overlay
           if (_isProcessing)
             Container(
               color: Colors.black54,
-              child: const Center(
-                child: CircularProgressIndicator(color: GymFlowColors.primary),
-              ),
+              child: const Center(child: CircularProgressIndicator()),
             ),
         ],
       ),

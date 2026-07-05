@@ -150,4 +150,17 @@ class Gym {
       isActive: json['is_active'] ?? true,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'slug': slug,
+    'address': address,
+    'city': city,
+    'state': state,
+    'phone': phone,
+    'email': email,
+    'logo_url': logoUrl,
+    'is_active': isActive,
+  };
 }

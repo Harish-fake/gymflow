@@ -1,0 +1,8 @@
+# Keystore configuration for release builds
+# Copy this file to android/key.properties and fill in your values
+# Generate a keystore: keytool -genkey -v -keystore gymflow-release.keystore -alias gymflow -keyalg RSA -keysize 2048 -validity 10000
+
+storePassword=your-keystore-password
+keyPassword=your-key-password
+keyAlias=gymflow
+storeFile=../gymflow-release.keystore

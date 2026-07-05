@@ -1,19 +1,34 @@
-import { supabase } from '../config/supabase.js';
+import { supabaseAdmin } from '../config/supabase.js';
 import { uploadToSupabase } from '../middleware/upload.js';
 
 export async function getProfile(req, res) {
   try {
-    const { data: profile, error } = await supabase
+    let { data: profile, error } = await supabaseAdmin
       .from('user_profiles')
       .select('*')
       .eq('user_id', req.user.id)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      return res.status(404).json({ error: 'Profile not found' });
+      return res.status(500).json({ error: error.message });
     }
 
-    const { data: gyms } = await supabase
+    if (!profile) {
+      await supabaseAdmin.from('user_profiles').upsert({
+        user_id: req.user.id,
+        full_name: req.user.email?.split('@')[0] || '',
+      }, { onConflict: 'user_id', ignoreDuplicates: true });
+
+      const { data: newProfile } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .single();
+
+      profile = newProfile || { user_id: req.user.id, full_name: '' };
+    }
+
+    const { data: gyms } = await supabaseAdmin
       .from('user_gyms')
       .select('gym:gyms(*)')
       .eq('user_id', req.user.id);
@@ -47,17 +62,19 @@ export async function updateProfile(req, res) {
     }
 
     if (updates.phone && updates.phone !== req.user.phone) {
-      await supabase
+      await supabaseAdmin
         .from('users')
         .update({ phone: updates.phone })
         .eq('id', req.user.id);
     }
 
     if (Object.keys(profileUpdate).length > 0) {
-      const { data, error } = await supabase
+      profileUpdate.updated_at = new Date().toISOString();
+      profileUpdate.user_id = req.user.id;
+
+      const { data, error } = await supabaseAdmin
         .from('user_profiles')
-        .update({ ...profileUpdate, updated_at: new Date().toISOString() })
-        .eq('user_id', req.user.id)
+        .upsert(profileUpdate, { onConflict: 'user_id' })
         .select()
         .single();
 
@@ -83,12 +100,12 @@ export async function uploadPhoto(req, res) {
 
     const photoUrl = await uploadToSupabase(req.file, 'profile-photos', `users/${req.user.id}`);
 
-    await supabase
+    await supabaseAdmin
       .from('user_profiles')
       .update({ photo_url: photoUrl, updated_at: new Date().toISOString() })
       .eq('user_id', req.user.id);
 
-    await supabase
+    await supabaseAdmin
       .from('users')
       .update({ avatar_url: photoUrl })
       .eq('id', req.user.id);

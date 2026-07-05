@@ -9,7 +9,21 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const token = localStorage.getItem('gymflow_token');
+    const cachedProfile = localStorage.getItem('cached_profile');
+
+    if (cachedProfile && !token) {
+      try {
+        setUser(JSON.parse(cachedProfile));
+      } catch (_) {}
+    }
+
     if (token) {
+      if (cachedProfile) {
+        try {
+          const cached = JSON.parse(cachedProfile);
+          setUser(cached);
+        } catch (_) {}
+      }
       loadUser();
     } else {
       setLoading(false);
@@ -20,8 +34,11 @@ export function AuthProvider({ children }) {
     try {
       const data = await api.getProfile();
       setUser(data.user);
+      localStorage.setItem('cached_profile', JSON.stringify(data.user));
     } catch {
       localStorage.removeItem('gymflow_token');
+      localStorage.removeItem('cached_profile');
+      setUser(null);
     } finally {
       setLoading(false);
     }
@@ -30,26 +47,39 @@ export function AuthProvider({ children }) {
   async function login(email, password) {
     const data = await api.login(email, password);
     localStorage.setItem('gymflow_token', data.token);
-    if (data.refresh_token) localStorage.setItem('gymflow_refresh', data.refresh_token);
+    if (data.refresh_token) {
+      localStorage.setItem('gymflow_refresh', data.refresh_token);
+    }
     setUser(data.user);
+    localStorage.setItem('cached_profile', JSON.stringify(data.user));
     return data;
   }
 
   function logout() {
     localStorage.removeItem('gymflow_token');
     localStorage.removeItem('gymflow_refresh');
+    localStorage.removeItem('cached_profile');
     setUser(null);
+    window.location.href = '/login';
   }
 
-  return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const value = {
+    user,
+    loading,
+    login,
+    logout,
+    isAuthenticated: !!user,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 }
+
+export default AuthContext;

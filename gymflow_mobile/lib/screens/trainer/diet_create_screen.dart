@@ -21,6 +21,7 @@ class _DietCreateScreenState extends ConsumerState<DietCreateScreen> {
   List<Map<String, dynamic>> _meals = [];
   List<dynamic> _members = [];
   bool _isLoading = true;
+  String? _error;
 
   final _mealTypes = ['breakfast', 'mid_morning', 'lunch', 'evening_snack', 'dinner', 'post_workout'];
   final _dietTypes = ['weight_loss', 'muscle_gain', 'maintenance'];
@@ -43,10 +44,17 @@ class _DietCreateScreenState extends ConsumerState<DietCreateScreen> {
       final dashboard = await _api.getTrainerDashboard();
       setState(() {
         _members = dashboard['assigned_members'] ?? [];
+        _error = null;
         _isLoading = false;
       });
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
@@ -92,6 +100,26 @@ class _DietCreateScreenState extends ConsumerState<DietCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_error != null && _members.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Create Diet Plan')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: GymFlowColors.error),
+              const SizedBox(height: 16),
+              Text('Failed to load data', style: Theme.of(context).textTheme.bodyLarge),
+              const SizedBox(height: 8),
+              Text(_error!, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 16),
+              ElevatedButton(onPressed: _load, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Create Diet Plan'),
@@ -115,7 +143,7 @@ class _DietCreateScreenState extends ConsumerState<DietCreateScreen> {
                       final name = m['profile']?['full_name'] ?? m['user']?['email'] ?? 'Unknown';
                       return DropdownMenuItem<String>(value: m['user']?['id'] as String?, child: Text(name));
                     }).toList(),
-                    onChanged: (v) => _selectedMemberId = v,
+                    onChanged: (v) => setState(() => _selectedMemberId = v),
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
@@ -174,14 +202,15 @@ class _DietCreateScreenState extends ConsumerState<DietCreateScreen> {
                                     onChanged: (v) => _meals[i]['time'] = v,
                                   ),
                                 ),
+                                const SizedBox(width: 8),
                                 IconButton(
-                                  icon: const Icon(Icons.close, color: GymFlowColors.error, size: 18),
+                                  icon: const Icon(Icons.close, color: GymFlowColors.error, size: 20),
                                   onPressed: () => _removeMeal(i),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 8),
-                            Text('Foods: ${(meal['foods'] as List).join(', ')}',
+                            Text('Food items can be added here',
                                 style: Theme.of(context).textTheme.bodySmall),
                           ],
                         ),
@@ -194,5 +223,3 @@ class _DietCreateScreenState extends ConsumerState<DietCreateScreen> {
     );
   }
 }
-
-

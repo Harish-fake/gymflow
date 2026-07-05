@@ -1,7 +1,7 @@
 class ApiConstants {
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://gymflow-j5ir.onrender.com/api',
+    defaultValue: 'https://gymflow-api-3fh7.onrender.com/api',
   );
 
   static const String supabaseUrl = String.fromEnvironment(

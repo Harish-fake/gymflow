@@ -1,8 +1,31 @@
+import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/constants.dart';
+import 'cache_service.dart';
+
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  final String? details;
+  ApiException({required this.message, this.statusCode, this.details});
+  @override
+  String toString() => message;
+}
+
+class _QueuedRequest {
+  final Future<dynamic> Function() requestFn;
+  final Completer<dynamic> completer;
+  _QueuedRequest(this.requestFn, this.completer);
+}
+
+class _DebounceEntry {
+  final Completer<dynamic> completer;
+  _DebounceEntry(this.completer);
+}
 
 class ApiService {
   static final ApiService _instance = ApiService._internal();
@@ -11,11 +34,37 @@ class ApiService {
 
   String? _token;
   String? _refreshToken;
+  bool _warmedUp = false;
+  bool _isRefreshing = false;
+
+  static const int _maxConcurrentRequests = 4;
+  int _activeRequests = 0;
+  final Queue<_QueuedRequest> _requestQueue = Queue();
+
+  final Set<String> _inflightRequests = {};
+  final Map<String, List<_DebounceEntry>> _debounceTimers = {};
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _token = prefs.getString(StorageKeys.token);
     _refreshToken = prefs.getString(StorageKeys.refreshToken);
+  }
+
+  Future<void> warmUp() async {
+    if (_warmedUp) return;
+    _warmedUp = true;
+    try {
+      final uri = Uri.parse('${ApiConstants.baseUrl}/health');
+      await http.get(uri).timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
+
+  void setToken(String? token) {
+    _token = token;
+  }
+
+  void setRefreshToken(String? token) {
+    _refreshToken = token;
   }
 
   Map<String, String> get _headers => {
@@ -44,40 +93,139 @@ class ApiService {
     _refreshToken = null;
   }
 
+  Future<Map<String, dynamic>> refreshAuthToken() async {
+    if (_refreshToken == null) throw ApiException(message: 'No refresh token');
+    final response = await http.post(
+      Uri.parse('${ApiConstants.baseUrl}/auth/refresh'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'refresh_token': _refreshToken}),
+    );
+    if (response.statusCode != 200) {
+      await clearTokens();
+      throw ApiException(statusCode: 401, message: 'Session expired');
+    }
+    final data = jsonDecode(response.body);
+    await _saveTokens(data);
+    return data;
+  }
+
+  String _cacheKey(String method, String path, Map<String, String>? queryParams) {
+    return '$method:$path${queryParams?.toString() ?? ''}';
+  }
+
+  String _debounceKey(String method, String path, Map<String, dynamic>? body) {
+    return '$method:$path${body?.toString() ?? ''}';
+  }
+
   Future<dynamic> _request(
     String method,
     String path, {
     Map<String, dynamic>? body,
     Map<String, String>? queryParams,
   }) async {
+    final uri = Uri.parse('${ApiConstants.baseUrl}$path').replace(
+      queryParameters: queryParams,
+    );
+    final cacheKey = _cacheKey(method, path, queryParams);
+
+    if (method == 'GET') {
+      final cached = await CacheService().get(cacheKey);
+      if (cached != null) return cached;
+    }
+
+    return _enqueueRequest(() => _executeRequest(method, path, uri, body, cacheKey));
+  }
+
+  Future<dynamic> _enqueueRequest(Future<dynamic> Function() requestFn) async {
+    if (_activeRequests < _maxConcurrentRequests) {
+      _activeRequests++;
+      try {
+        return await requestFn();
+      } finally {
+        _activeRequests--;
+        _processQueue();
+      }
+    }
+
+    final completer = Completer<dynamic>();
+    _requestQueue.add(_QueuedRequest(requestFn, completer));
+    return completer.future;
+  }
+
+  void _processQueue() {
+    while (_activeRequests < _maxConcurrentRequests && _requestQueue.isNotEmpty) {
+      final queued = _requestQueue.removeFirst();
+      _activeRequests++;
+      queued.requestFn().then((value) {
+        _activeRequests--;
+        queued.completer.complete(value);
+        _processQueue();
+      }).catchError((error) {
+        _activeRequests--;
+        queued.completer.completeError(error);
+        _processQueue();
+      });
+    }
+  }
+
+  Future<dynamic> _executeRequest(
+    String method,
+    String path,
+    Uri uri,
+    Map<String, dynamic>? body,
+    String cacheKey,
+  ) async {
+    final debounceKey = _debounceKey(method, path, body);
+
+    if (method == 'GET') {
+      if (_inflightRequests.contains(debounceKey)) {
+        final completer = Completer<dynamic>();
+        _debounceTimers.putIfAbsent(debounceKey, () => []);
+        _debounceTimers[debounceKey]!.add(_DebounceEntry(completer));
+        return completer.future;
+      }
+      _inflightRequests.add(debounceKey);
+    }
+
     try {
-      final uri = Uri.parse('${ApiConstants.baseUrl}$path').replace(
-        queryParameters: queryParams,
-      );
-
       late http.Response response;
-      final headers = _headers;
+      var headers = _headers;
 
-      switch (method) {
-        case 'GET':
-          response = await http.get(uri, headers: headers);
-          break;
-        case 'POST':
-          response = await http.post(uri, headers: headers, body: body != null ? jsonEncode(body) : null);
-          break;
-        case 'PUT':
-          response = await http.put(uri, headers: headers, body: body != null ? jsonEncode(body) : null);
-          break;
-        case 'DELETE':
-          response = await http.delete(uri, headers: headers);
-          break;
-        default:
-          throw Exception('Unsupported method: $method');
+      Future<http.Response> _makeHttpCall() async {
+        switch (method) {
+          case 'GET':
+            return await http.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+          case 'POST':
+            return await http.post(uri, headers: headers, body: body != null ? jsonEncode(body) : null).timeout(const Duration(seconds: 20));
+          case 'PUT':
+            return await http.put(uri, headers: headers, body: body != null ? jsonEncode(body) : null).timeout(const Duration(seconds: 20));
+          case 'DELETE':
+            return await http.delete(uri, headers: headers).timeout(const Duration(seconds: 20));
+          default:
+            throw Exception('Unsupported method: $method');
+        }
+      }
+
+      response = await _makeHttpCall();
+
+      if (response.statusCode == 401 && _refreshToken != null && !_isRefreshing) {
+        _isRefreshing = true;
+        try {
+          await refreshAuthToken();
+          headers = _headers;
+          response = await _makeHttpCall();
+        } finally {
+          _isRefreshing = false;
+        }
       }
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         if (response.body.isEmpty) return {};
-        return jsonDecode(response.body);
+        final data = jsonDecode(response.body);
+        if (method == 'GET') {
+          await CacheService().set(cacheKey, data);
+        }
+        return data;
       } else {
         final error = jsonDecode(response.body);
         throw ApiException(
@@ -89,7 +237,23 @@ class ApiService {
     } on ApiException {
       rethrow;
     } catch (e) {
+      if (method == 'GET') {
+        final cached = await CacheService().get(cacheKey);
+        if (cached != null) return cached;
+      }
       throw ApiException(message: 'Network error: ${e.toString()}');
+    } finally {
+      if (method == 'GET') {
+        _inflightRequests.remove(debounceKey);
+        final pending = _debounceTimers.remove(debounceKey);
+        if (pending != null) {
+          for (final entry in pending) {
+            if (!entry.completer.isCompleted) {
+              entry.completer.completeError(ApiException(message: 'Request deduplicated'));
+            }
+          }
+        }
+      }
     }
   }
 
@@ -108,6 +272,7 @@ class ApiService {
       'phone': phone,
       'role': role,
     });
+    await _saveTokens(result);
     return result;
   }
 
@@ -164,6 +329,14 @@ class ApiService {
     return await _request('GET', '/members/$id');
   }
 
+  Future<Map<String, dynamic>> getMemberAttendance(String userId) async {
+    return await _request('GET', '/members/$userId/attendance');
+  }
+
+  Future<Map<String, dynamic>> getMemberPayments(String userId) async {
+    return await _request('GET', '/members/$userId/payments');
+  }
+
   Future<Map<String, dynamic>> createMember(Map<String, dynamic> data) async {
     return await _request('POST', '/members', body: data);
   }
@@ -176,10 +349,14 @@ class ApiService {
     return await _request('POST', '/members/$id/renew', body: data);
   }
 
+  Future<Map<String, dynamic>> deleteMember(String id) async {
+    return await _request('DELETE', '/members/$id');
+  }
+
   // Trainers
   Future<List<dynamic>> getTrainers({String? gymId}) async {
     final result = await _request('GET', '/trainers', queryParams: gymId != null ? {'gym_id': gymId} : null);
-    return result is List ? result : [];
+    return result is List ? result : result['trainers'] ?? [];
   }
 
   Future<Map<String, dynamic>> getTrainer(String id) async {
@@ -190,14 +367,30 @@ class ApiService {
     return await _request('POST', '/trainers', body: data);
   }
 
+  Future<Map<String, dynamic>> updateTrainer(String id, Map<String, dynamic> data) async {
+    return await _request('PUT', '/trainers/$id', body: data);
+  }
+
+  Future<Map<String, dynamic>> deleteTrainer(String id) async {
+    return await _request('DELETE', '/trainers/$id');
+  }
+
   // Membership Plans
   Future<List<dynamic>> getPlans({String? gymId}) async {
     final result = await _request('GET', '/membership-plans', queryParams: gymId != null ? {'gym_id': gymId} : null);
-    return result is List ? result : [];
+    return result is List ? result : result['plans'] ?? [];
   }
 
   Future<Map<String, dynamic>> createPlan(Map<String, dynamic> data) async {
     return await _request('POST', '/membership-plans', body: data);
+  }
+
+  Future<Map<String, dynamic>> updatePlan(String id, Map<String, dynamic> data) async {
+    return await _request('PUT', '/membership-plans/$id', body: data);
+  }
+
+  Future<Map<String, dynamic>> deletePlan(String id) async {
+    return await _request('DELETE', '/membership-plans/$id');
   }
 
   // Attendance
@@ -219,57 +412,49 @@ class ApiService {
     return await _request('GET', '/attendance/today', queryParams: gymId != null ? {'gym_id': gymId} : null);
   }
 
-  Future<Map<String, dynamic>> getAttendanceQR({String? gymId}) async {
-    return await _request('GET', '/attendance/qr', queryParams: gymId != null ? {'gym_id': gymId} : null);
+  Future<Map<String, dynamic>> getAttendanceQR({String? gymId, String? timeSlot}) async {
+    final params = <String, String>{};
+    if (gymId != null) params['gym_id'] = gymId;
+    if (timeSlot != null) params['time_slot'] = timeSlot;
+    return await _request('GET', '/attendance/qr', queryParams: params);
+  }
+
+  Future<Map<String, dynamic>> getAttendanceCalendar({int? month, int? year}) async {
+    final params = <String, String>{};
+    if (month != null) params['month'] = '$month';
+    if (year != null) params['year'] = '$year';
+    return await _request('GET', '/attendance/calendar', queryParams: params);
   }
 
   // Payments
-  Future<List<dynamic>> getPayments({String? gymId, String? status}) async {
-    final result = await _request('GET', '/payments', queryParams: {
-      if (gymId != null) 'gym_id': gymId,
-      if (status != null) 'status': status,
-    });
-    return result is List ? result : [];
-  }
-
-  Future<List<dynamic>> getMyPayments() async {
-    final result = await _request('GET', '/payments/mine');
-    return result['payments'] ?? [];
-  }
-
-  Future<Map<String, dynamic>> createPayment(Map<String, dynamic> data) async {
-    return await _request('POST', '/payments', body: data);
+  Future<Map<String, dynamic>> getPayments({int page = 1, int limit = 20}) async {
+    return await _request('GET', '/payments', queryParams: {'page': '$page', 'limit': '$limit'});
   }
 
   Future<Map<String, dynamic>> createRazorpayOrder(String planId) async {
-    return await _request('POST', '/payments/create-order', body: {'membership_plan_id': planId});
+    return await _request('POST', '/payments/razorpay/order', body: {'plan_id': planId});
   }
 
-  Future<Map<String, dynamic>> verifyRazorpayPayment(Map<String, dynamic> data) async {
-    return await _request('POST', '/payments/verify', body: data);
+  // Reports
+  Future<Map<String, dynamic>> getRevenueReport({String? gymId}) async {
+    return await _request('GET', '/reports/revenue', queryParams: gymId != null ? {'gym_id': gymId} : null);
+  }
+
+  Future<Map<String, dynamic>> getMembershipReport({String? gymId}) async {
+    return await _request('GET', '/reports/membership', queryParams: gymId != null ? {'gym_id': gymId} : null);
+  }
+
+  Future<Map<String, dynamic>> getAttendanceReport({String? gymId}) async {
+    return await _request('GET', '/reports/attendance', queryParams: gymId != null ? {'gym_id': gymId} : null);
   }
 
   // Workouts
-  Future<List<dynamic>> getMemberAttendance(String memberId) async {
-    final result = await _request('GET', '/members/$memberId/attendance');
-    return result is List ? result : [];
+  Future<Map<String, dynamic>> getWorkouts({String? gymId}) async {
+    return await _request('GET', '/workouts', queryParams: gymId != null ? {'gym_id': gymId} : null);
   }
 
-  Future<List<dynamic>> getMemberPayments(String memberId) async {
-    final result = await _request('GET', '/members/$memberId/payments');
-    return result is List ? result : [];
-  }
-
-  Future<List<dynamic>> getWorkouts({String? memberId, String? date}) async {
-    final result = await _request('GET', '/workouts', queryParams: {
-      if (memberId != null) 'member_id': memberId,
-      if (date != null) 'date': date,
-    });
-    return result is List ? result : [];
-  }
-
-  Future<Map<String, dynamic>> getWorkout(String id) async {
-    return await _request('GET', '/workouts/$id');
+  Future<Map<String, dynamic>> getExercises({String? gymId}) async {
+    return await _request('GET', '/workouts/exercises/list', queryParams: gymId != null ? {'gym_id': gymId} : null);
   }
 
   Future<Map<String, dynamic>> createWorkout(Map<String, dynamic> data) async {
@@ -280,24 +465,18 @@ class ApiService {
     return await _request('PUT', '/workouts/$id/complete');
   }
 
-  Future<List<dynamic>> getExercises({String? category}) async {
-    final result = await _request('GET', '/workouts/exercises/list', queryParams: category != null ? {'category': category} : null);
-    return result is List ? result : [];
-  }
-
   // Diet Plans
-  Future<List<dynamic>> getDiets({String? memberId}) async {
-    final result = await _request('GET', '/diet-plans', queryParams: memberId != null ? {'member_id': memberId} : null);
-    return result is List ? result : [];
-  }
-
   Future<Map<String, dynamic>> createDiet(Map<String, dynamic> data) async {
     return await _request('POST', '/diet-plans', body: data);
   }
 
+  Future<Map<String, dynamic>> getDiets({String? gymId}) async {
+    return await _request('GET', '/diet-plans', queryParams: gymId != null ? {'gym_id': gymId} : null);
+  }
+
   // Progress
-  Future<Map<String, dynamic>> getMyProgress({int limit = 30}) async {
-    return await _request('GET', '/progress/mine', queryParams: {'limit': limit.toString()});
+  Future<Map<String, dynamic>> getMyProgress() async {
+    return await _request('GET', '/progress/my');
   }
 
   Future<Map<String, dynamic>> addProgress(Map<String, dynamic> data) async {
@@ -306,68 +485,12 @@ class ApiService {
 
   // Notifications
   Future<Map<String, dynamic>> getNotifications({bool unreadOnly = false}) async {
-    return await _request('GET', '/notifications', queryParams: unreadOnly ? {'unread_only': 'true'} : null);
+    final params = <String, String>{};
+    if (unreadOnly) params['unread'] = 'true';
+    return await _request('GET', '/notifications', queryParams: params);
   }
 
-  Future<void> markNotificationRead(String id) async {
-    await _request('PUT', '/notifications/$id/read');
+  Future<Map<String, dynamic>> markNotificationRead(String id) async {
+    return await _request('PUT', '/notifications/$id/read');
   }
-
-  // Reports
-  Future<Map<String, dynamic>> getRevenueReport({String? gymId, String? from, String? to}) async {
-    return await _request('GET', '/reports/revenue', queryParams: {
-      if (gymId != null) 'gym_id': gymId,
-      if (from != null) 'from': from,
-      if (to != null) 'to': to,
-    });
-  }
-
-  // Export
-  Future<String> exportReport(String type) async {
-    final url = Uri.parse('${ApiConstants.baseUrl}/reports/export/$type?format=xlsx');
-    if (_token == null) throw ApiException(message: 'Not authenticated');
-    final response = await http.get(
-      url,
-      headers: {
-        'Authorization': 'Bearer $_token',
-      },
-    );
-    if (response.statusCode != 200) {
-      throw ApiException(statusCode: response.statusCode, message: 'Export failed');
-    }
-    final dir = Directory.systemTemp;
-    final file = File('${dir.path}/${type}_report.xlsx');
-    await file.writeAsBytes(response.bodyBytes);
-    return file.path;
-  }
-
-  // Invoice
-  Future<String> downloadInvoice(String paymentId) async {
-    final url = Uri.parse('${ApiConstants.baseUrl}/payments/$paymentId/invoice/download');
-    if (_token == null) throw ApiException(message: 'Not authenticated');
-    final response = await http.get(
-      url,
-      headers: {
-        'Authorization': 'Bearer $_token',
-      },
-    );
-    if (response.statusCode != 200) {
-      throw ApiException(statusCode: response.statusCode, message: 'Download failed');
-    }
-    final dir = Directory.systemTemp;
-    final file = File('${dir.path}/invoice_$paymentId.pdf');
-    await file.writeAsBytes(response.bodyBytes);
-    return file.path;
-  }
-}
-
-class ApiException implements Exception {
-  final int? statusCode;
-  final String message;
-  final dynamic details;
-
-  ApiException({this.statusCode, required this.message, this.details});
-
-  @override
-  String toString() => message;
 }

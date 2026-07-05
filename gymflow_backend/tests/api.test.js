@@ -17,7 +17,7 @@ describe('CORS Headers', () => {
       .options('/api/auth/login')
       .set('Origin', 'http://localhost:5173');
     expect(res.status).toBe(204);
-    expect(res.headers['access-control-allow-origin']).toBeTruthy();
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
   });
 });
 
@@ -34,6 +34,4 @@ describe('Error Handling', () => {
       .post('/api/auth/login')
       .set('Content-Type', 'application/json')
       .send('not-json');
-    expect(res.status).toBe(400);
-  });
-});
+    expect(res.status).toBe

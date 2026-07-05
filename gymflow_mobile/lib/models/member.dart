@@ -40,6 +40,10 @@ class Member {
   });
 
   factory Member.fromJson(Map<String, dynamic> json) {
+    final user = json['user'] != null ? User.fromJson(json['user']) : null;
+    final nestedProfile = json['user']?['profile'] != null
+        ? UserProfile.fromJson(json['user']['profile'])
+        : null;
     return Member(
       id: json['id'] ?? '',
       userId: json['user_id'] ?? '',
@@ -52,8 +56,10 @@ class Member {
       joinDate: json['join_date'],
       referralSource: json['referral_source'],
       notes: json['notes'],
-      user: json['user'] != null ? User.fromJson(json['user']) : null,
-      profile: json['profile'] != null ? UserProfile.fromJson(json['profile']) : null,
+      user: user,
+      profile: json['profile'] != null
+          ? UserProfile.fromJson(json['profile'])
+          : nestedProfile,
       plan: json['plan'] != null ? MembershipPlan.fromJson(json['plan']) : null,
       trainer: json['trainer'] != null ? User.fromJson(json['trainer']) : null,
       recentAttendance: json['recent_attendance'],
@@ -112,10 +118,9 @@ class MembershipPlan {
   }
 
   double get effectivePrice => discountedPrice ?? price;
-  String get durationText {
-    if (durationDays >= 365) return 'Annual';
-    if (durationDays >= 180) return 'Half-Yearly';
-    if (durationDays >= 90) return 'Quarterly';
-    return 'Monthly';
+  String get duration {
+    if (durationDays >= 365) return '${(durationDays / 365).floor()} Year${(durationDays / 365).floor() > 1 ? 's' : ''}';
+    if (durationDays >= 30) return '${(durationDays / 30).floor()} Month${(durationDays / 30).floor() > 1 ? 's' : ''}';
+    return '$durationDays Days';
   }
 }

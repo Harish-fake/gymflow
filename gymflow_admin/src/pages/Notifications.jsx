@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Bell } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { Send, Bell, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import Modal from '../components/Modal';
 
@@ -30,8 +31,10 @@ export default function Notifications() {
       await api.sendNotification(form);
       setShowSend(false);
       setForm({ title: '', body: '', type: 'announcement', recipient_id: '' });
+      toast.success('Notification sent');
+      loadNotifications();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed');
+      toast.error(err.response?.data?.error || 'Failed');
     }
   };
 
@@ -41,8 +44,21 @@ export default function Notifications() {
       await api.sendBulkNotification(bulkForm);
       setShowBulk(false);
       setBulkForm({ title: '', body: '', type: 'announcement', role: '' });
+      toast.success('Bulk notification sent');
+      loadNotifications();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed');
+      toast.error(err.response?.data?.error || 'Failed');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this notification?')) return;
+    try {
+      await api.deleteNotification(id);
+      toast.success('Notification deleted');
+      loadNotifications();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete');
     }
   };
 
@@ -98,6 +114,9 @@ export default function Notifications() {
                     )}
                   </div>
                 </div>
+                <button onClick={() => handleDelete(n.id)} className="text-dark-400 hover:text-red-500 transition-colors shrink-0 mt-2" title="Delete">
+                  <Trash2 size={16} />
+                </button>
               </div>
             ))
           )}
@@ -158,13 +177,15 @@ export default function Notifications() {
             <label className="block text-sm font-medium text-dark-300 mb-1">Type</label>
             <select value={bulkForm.type} onChange={(e) => setBulkForm({ ...bulkForm, type: e.target.value })} className="input-field">
               <option value="announcement">Announcement</option>
-              <option value="promotional">Promotional</option>
               <option value="workout">Workout</option>
+              <option value="membership_expiry">Membership Expiry</option>
+              <option value="payment_reminder">Payment Reminder</option>
+              <option value="promotional">Promotional</option>
             </select>
           </div>
           <div className="flex gap-3 justify-end pt-2">
             <button type="button" onClick={() => setShowBulk(false)} className="btn-outline">Cancel</button>
-            <button type="submit" className="btn-primary">Send to All</button>
+            <button type="submit" className="btn-primary">Send Bulk</button>
           </div>
         </form>
       </Modal>

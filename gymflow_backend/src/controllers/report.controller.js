@@ -1,11 +1,11 @@
-import { supabase } from '../config/supabase.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 export async function revenueReport(req, res) {
   try {
     const { gym_id, from, to } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('payments')
       .select('amount, payment_date, method, plan:membership_plans(name)')
       .eq('gym_id', targetGym)
@@ -46,7 +46,7 @@ export async function attendanceReport(req, res) {
     const { gym_id, from, to } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('attendance')
       .select('date, user_id, check_in, check_out, method')
       .eq('gym_id', targetGym);
@@ -87,7 +87,7 @@ export async function membershipReport(req, res) {
     const { gym_id } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    const { data: members } = await supabase
+    const { data: members } = await supabaseAdmin
       .from('members')
       .select('status, plan:membership_plans(name)')
       .eq('gym_id', targetGym);
@@ -121,7 +121,7 @@ export async function memberGrowthReport(req, res) {
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - numMonths);
 
-    const { data: members } = await supabase
+    const { data: members } = await supabaseAdmin
       .from('members')
       .select('join_date, status')
       .eq('gym_id', targetGym)
@@ -157,29 +157,42 @@ export async function trainerPerformanceReport(req, res) {
     const { gym_id } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    const { data: trainers } = await supabase
+    const { data: trainers } = await supabaseAdmin
       .from('trainers')
-      .select('user_id, specialization, user:users(id, email), profile:user_profiles!user_id(full_name)')
+      .select('user_id, specialization, user:users(id, email)')
       .eq('gym_id', targetGym)
       .eq('is_active', true);
 
+    const tIds = [...new Set(trainers?.map(t => t.user_id).filter(Boolean) || [])];
+    let tProfiles = [];
+    if (tIds.length > 0) {
+      const { data: p } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .in('user_id', tIds);
+      tProfiles = p || [];
+    }
+    const tProfileMap = {};
+    tProfiles.forEach(prof => { tProfileMap[prof.user_id] = prof; });
+
     const performance = [];
     for (const trainer of trainers || []) {
-      const { data: memberCount } = await supabase
+      const { count: memberCount } = await supabaseAdmin
         .from('members')
         .select('id', { count: 'exact', head: true })
         .eq('assigned_trainer_id', trainer.user_id);
 
-      const { data: workoutCount } = await supabase
+      const { count: workoutCount } = await supabaseAdmin
         .from('workouts')
         .select('id', { count: 'exact', head: true })
         .eq('trainer_id', trainer.user_id);
 
+      const prof = tProfileMap[trainer.user_id] || null;
       performance.push({
-        trainer: trainer.profile?.full_name || 'Unknown',
+        trainer: prof?.full_name || 'Unknown',
         specialization: trainer.specialization,
-        assigned_members: memberCount?.length || 0,
-        workouts_created: workoutCount?.length || 0,
+        assigned_members: memberCount || 0,
+        workouts_created: workoutCount || 0,
       });
     }
 
@@ -200,57 +213,84 @@ export async function exportReport(req, res) {
 
     switch (type) {
       case 'revenue': {
-        const { data: payments } = await supabase
+        const { data: payments } = await supabaseAdmin
           .from('payments')
-          .select('*, profile:user_profiles!user_id(full_name)')
+          .select('*')
           .eq('gym_id', targetGym)
           .eq('status', 'completed');
-        data = payments;
+        const revIds = [...new Set(payments?.map(p => p.user_id).filter(Boolean) || [])];
+        let revProfiles = [];
+        if (revIds.length > 0) {
+          const { data: p } = await supabaseAdmin
+            .from('user_profiles')
+            .select('*')
+            .in('user_id', revIds);
+          revProfiles = p || [];
+        }
+        const revMap = {};
+        revProfiles.forEach(prof => { revMap[prof.user_id] = prof; });
+        data = (payments || []).map(item => ({ ...item, profile: revMap[item.user_id] || null }));
         break;
       }
       case 'members': {
-        const { data: members } = await supabase
+        const { data: members } = await supabaseAdmin
           .from('members')
-          .select('*, profile:user_profiles!user_id(full_name, phone, email)')
+          .select('*')
           .eq('gym_id', targetGym);
-        data = members;
+        const memIds = [...new Set(members?.map(m => m.user_id).filter(Boolean) || [])];
+        let memProfiles = [];
+        if (memIds.length > 0) {
+          const { data: p } = await supabaseAdmin
+            .from('user_profiles')
+            .select('*')
+            .in('user_id', memIds);
+          memProfiles = p || [];
+        }
+        const memMap = {};
+        memProfiles.forEach(prof => { memMap[prof.user_id] = prof; });
+        data = (members || []).map(item => ({ ...item, profile: memMap[item.user_id] || null }));
         break;
       }
       case 'attendance': {
-        const { data: attendance } = await supabase
+        const { data: attendance } = await supabaseAdmin
           .from('attendance')
-          .select('*, profile:user_profiles!user_id(full_name)')
-          .eq('gym_id', targetGym);
-        data = attendance;
-        break;
-      }
-      case 'payments': {
-        const { data: payments } = await supabase
-          .from('payments')
-          .select('*, profile:user_profiles!user_id(full_name), plan:membership_plans(name)')
-          .eq('gym_id', targetGym);
-        data = payments;
+          .select('*')
+          .eq('gym_id', targetGym)
+          .order('date', { ascending: false });
+        const attIds = [...new Set(attendance?.map(a => a.user_id).filter(Boolean) || [])];
+        let attProfiles = [];
+        if (attIds.length > 0) {
+          const { data: p } = await supabaseAdmin
+            .from('user_profiles')
+            .select('*')
+            .in('user_id', attIds);
+          attProfiles = p || [];
+        }
+        const attMap = {};
+        attProfiles.forEach(prof => { attMap[prof.user_id] = prof; });
+        data = (attendance || []).map(item => ({ ...item, profile: attMap[item.user_id] || null }));
         break;
       }
       default:
         return res.status(400).json({ error: 'Invalid report type' });
     }
 
-    if (format === 'xlsx') {
-      const { exportToExcel, getExcelColumns, mapDataForExport } = await import('../services/export.service.js');
-      const columns = getExcelColumns(type);
-      const rows = mapDataForExport(type, data);
-      const buffer = await exportToExcel(rows, {
-        sheetName: type.charAt(0).toUpperCase() + type.slice(1),
-        columns,
-        filename: `${type}_report.xlsx`,
-      });
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="${type}_report.xlsx"`);
-      return res.send(Buffer.from(buffer));
+    if (format === 'json') {
+      return res.json(data || []);
     }
 
-    return res.json(data || []);
+    if (format === 'csv') {
+      const headers = data?.length ? Object.keys(data[0]) : [];
+      const csvRows = [headers.join(',')];
+      data?.forEach(row => {
+        csvRows.push(headers.map(h => JSON.stringify(row[h] ?? '')).join(','));
+      });
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=${type}_report.csv`);
+      return res.send(csvRows.join('\n'));
+    }
+
+    return res.status(400).json({ error: 'Unsupported format' });
   } catch (err) {
     console.error('Export report error:', err);
     return res.status(500).json({ error: 'Internal server error' });

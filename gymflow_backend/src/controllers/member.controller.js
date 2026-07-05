@@ -1,12 +1,12 @@
-import { supabase, supabaseAdmin } from '../config/supabase.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 export async function listMembers(req, res) {
   try {
     const { gym_id, status, search, page = 1, limit = 20 } = req.query;
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('members')
-      .select('*, user:users(id, email, phone, avatar_url), profile:user_profiles!user_id(*), plan:membership_plans(*), trainer:users!assigned_trainer_id(id, email)')
+      .select('*, user:users!user_id(id, email, phone, avatar_url, is_active, profile:user_profiles(*)), plan:membership_plans(*), trainer:users!assigned_trainer_id(id, email)')
       .order('created_at', { ascending: false });
 
     if (gym_id) query = query.eq('gym_id', gym_id);
@@ -14,7 +14,27 @@ export async function listMembers(req, res) {
     if (status) query = query.eq('status', status);
 
     if (search) {
-      query = query.or(`user_id.in.(${supabase.from('user_profiles').select('user_id').ilike('full_name', `%${search}%`).then(r => r.data?.map(u => u.user_id).join(',')) || ''})`);
+      const { data: nameMatches } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .ilike('email', `%${search}%`);
+
+      const nameMatchIds = nameMatches?.map(u => u.id) || [];
+
+      const { data: profileMatches } = await supabaseAdmin
+        .from('user_profiles')
+        .select('user_id')
+        .ilike('full_name', `%${search}%`);
+
+      const profileMatchIds = profileMatches?.map(u => u.user_id) || [];
+
+      const allMatchIds = [...new Set([...nameMatchIds, ...profileMatchIds])];
+
+      if (allMatchIds.length > 0) {
+        query = query.in('user_id', allMatchIds);
+      } else {
+        query = query.in('user_id', ['00000000-0000-0000-0000-000000000000']);
+      }
     }
 
     const from = (page - 1) * limit;
@@ -36,9 +56,9 @@ export async function getMember(req, res) {
   try {
     const { id } = req.params;
 
-    const { data: member, error } = await supabase
+    const { data: member, error } = await supabaseAdmin
       .from('members')
-      .select('*, user:users(id, email, phone, avatar_url, is_active), profile:user_profiles(*), plan:membership_plans(*), trainer:users!assigned_trainer_id(id, email)')
+      .select('*, user:users!user_id(id, email, phone, avatar_url, is_active, profile:user_profiles(*)), plan:membership_plans(*), trainer:users!assigned_trainer_id(id, email)')
       .eq('id', id)
       .single();
 
@@ -46,14 +66,14 @@ export async function getMember(req, res) {
       return res.status(404).json({ error: 'Member not found' });
     }
 
-    const { data: recentAttendance } = await supabase
+    const { data: recentAttendance } = await supabaseAdmin
       .from('attendance')
       .select('*')
       .eq('user_id', member.user_id)
       .order('date', { ascending: false })
       .limit(10);
 
-    const { data: recentPayments } = await supabase
+    const { data: recentPayments } = await supabaseAdmin
       .from('payments')
       .select('*')
       .eq('user_id', member.user_id)
@@ -73,22 +93,26 @@ export async function createMember(req, res) {
 
     const tempPassword = password || Math.random().toString(36).slice(-8) + 'A1!';
 
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password: tempPassword,
-      email_confirm: true,
-      user_metadata: { full_name, phone, role: 'member' },
+    const { data: userId, error: createErr } = await supabaseAdmin.rpc('create_auth_user', {
+      p_email: email,
+      p_password: tempPassword,
+      p_full_name: full_name || '',
+      p_phone: phone || null,
+      p_role: 'member',
     });
 
-    if (authError) {
-      return res.status(400).json({ error: authError.message });
+    if (createErr) {
+      if (createErr.message?.includes('duplicate') || createErr.code === '23505') {
+        return res.status(400).json({ error: 'User already exists' });
+      }
+      throw createErr;
     }
 
     const targetGymId = gym_id || req.user.selected_gym_id;
 
     let planDuration = 30;
     if (membership_plan_id) {
-      const { data: plan } = await supabase.from('membership_plans').select('duration_days').eq('id', membership_plan_id).single();
+      const { data: plan } = await supabaseAdmin.from('membership_plans').select('duration_days').eq('id', membership_plan_id).single();
       if (plan) planDuration = plan.duration_days;
     }
 
@@ -96,26 +120,26 @@ export async function createMember(req, res) {
     const memberEndDate = new Date(memberStartDate);
     memberEndDate.setDate(memberEndDate.getDate() + planDuration);
 
-    const { data: member, error: memberError } = await supabase.from('members').insert({
-      user_id: authData.user.id,
+    const { data: member, error: memberError } = await supabaseAdmin.from('members').insert({
+      user_id: userId,
       gym_id: targetGymId,
       membership_plan_id: membership_plan_id || null,
       start_date: memberStartDate.toISOString().split('T')[0],
       end_date: memberEndDate.toISOString().split('T')[0],
       status: 'active',
       assigned_trainer_id: assigned_trainer_id || null,
-    }).select('*, user:users(*), plan:membership_plans(*)').single();
+    }).select().single();
 
     if (memberError) {
       console.error('Member insert error:', memberError);
       return res.status(400).json({ error: memberError.message });
     }
 
-    await supabase.from('user_gyms').insert({
-      user_id: authData.user.id,
+    await supabaseAdmin.from('user_gyms').upsert({
+      user_id: userId,
       gym_id: targetGymId,
       role: 'member',
-    });
+    }, { onConflict: ['user_id', 'gym_id'], ignoreDuplicates: true });
 
     return res.status(201).json({
       ...member,
@@ -144,11 +168,11 @@ export async function updateMember(req, res) {
 
     memberUpdate.updated_at = new Date().toISOString();
 
-    const { data: member, error } = await supabase
+    const { data: member, error } = await supabaseAdmin
       .from('members')
       .update(memberUpdate)
       .eq('id', id)
-      .select('*, user:users(*), plan:membership_plans(*)')
+      .select('*, user:users!user_id(*), plan:membership_plans(*)')
       .single();
 
     if (error) return res.status(400).json({ error: error.message });
@@ -164,11 +188,11 @@ export async function deleteMember(req, res) {
   try {
     const { id } = req.params;
 
-    const { data: member } = await supabase.from('members').select('user_id').eq('id', id).single();
+    const { data: member } = await supabaseAdmin.from('members').select('user_id').eq('id', id).single();
     if (!member) return res.status(404).json({ error: 'Member not found' });
 
-    await supabase.from('members').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id);
-    await supabase.from('users').update({ is_active: false }).eq('id', member.user_id);
+    await supabaseAdmin.from('members').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id);
+    await supabaseAdmin.from('users').update({ is_active: false }).eq('id', member.user_id);
 
     return res.json({ message: 'Member deactivated' });
   } catch (err) {
@@ -182,10 +206,10 @@ export async function getMemberAttendance(req, res) {
     const { id } = req.params;
     const { from, to, limit = 30 } = req.query;
 
-    const { data: member } = await supabase.from('members').select('user_id').eq('id', id).single();
+    const { data: member } = await supabaseAdmin.from('members').select('user_id').eq('id', id).single();
     if (!member) return res.status(404).json({ error: 'Member not found' });
 
-    let query = supabase
+    let query = supabaseAdmin
       .from('attendance')
       .select('*')
       .eq('user_id', member.user_id)
@@ -209,10 +233,10 @@ export async function getMemberPayments(req, res) {
   try {
     const { id } = req.params;
 
-    const { data: member } = await supabase.from('members').select('user_id').eq('id', id).single();
+    const { data: member } = await supabaseAdmin.from('members').select('user_id').eq('id', id).single();
     if (!member) return res.status(404).json({ error: 'Member not found' });
 
-    const { data: payments, error } = await supabase
+    const { data: payments, error } = await supabaseAdmin
       .from('payments')
       .select('*, plan:membership_plans(*)')
       .eq('user_id', member.user_id)
@@ -236,7 +260,7 @@ export async function renewMembership(req, res) {
       return res.status(400).json({ error: 'Membership plan ID is required' });
     }
 
-    const { data: member, error: memberError } = await supabase
+    const { data: member, error: memberError } = await supabaseAdmin
       .from('members')
       .select('*')
       .eq('id', id)
@@ -244,7 +268,7 @@ export async function renewMembership(req, res) {
 
     if (memberError) return res.status(404).json({ error: 'Member not found' });
 
-    const { data: plan } = await supabase
+    const { data: plan } = await supabaseAdmin
       .from('membership_plans')
       .select('*')
       .eq('id', membership_plan_id)
@@ -260,7 +284,7 @@ export async function renewMembership(req, res) {
 
     const payAmount = amount || plan.price;
 
-    const { data: payment, error: payError } = await supabase.from('payments').insert({
+    const { data: payment, error: payError } = await supabaseAdmin.from('payments').insert({
       user_id: member.user_id,
       gym_id: member.gym_id,
       membership_plan_id,
@@ -272,24 +296,9 @@ export async function renewMembership(req, res) {
 
     if (payError) return res.status(400).json({ error: payError.message });
 
-    const { data: updated, error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabaseAdmin
       .from('members')
       .update({
         membership_plan_id,
         start_date: newStart.toISOString().split('T')[0],
         end_date: newEnd.toISOString().split('T')[0],
-        status: 'active',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .select('*, user:users(*), plan:membership_plans(*)')
-      .single();
-
-    if (updateError) throw updateError;
-
-    return res.json({ member: updated, payment, message: 'Membership renewed successfully' });
-  } catch (err) {
-    console.error('Renew membership error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-}

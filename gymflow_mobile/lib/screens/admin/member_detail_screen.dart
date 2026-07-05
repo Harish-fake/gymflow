@@ -16,6 +16,7 @@ class _MemberDetailScreenState extends ConsumerState<MemberDetailScreen>
     with SingleTickerProviderStateMixin {
   final _api = ApiService();
   Member? _member;
+  String? _error;
   bool _isLoading = true;
   late TabController _tabController;
 
@@ -36,8 +37,12 @@ class _MemberDetailScreenState extends ConsumerState<MemberDetailScreen>
     setState(() => _isLoading = true);
     try {
       final data = await _api.getMember(widget.id);
-      setState(() => _member = Member.fromJson(data));
+      setState(() {
+        _member = Member.fromJson(data);
+        _error = null;
+      });
     } catch (e) {
+      setState(() => _error = e.toString());
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
       }
@@ -49,8 +54,30 @@ class _MemberDetailScreenState extends ConsumerState<MemberDetailScreen>
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(appBar: AppBar(title: const Text('Member Details')),
-          body: const Center(child: CircularProgressIndicator()));
+      return Scaffold(
+        appBar: AppBar(title: const Text('Member Details')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Member Details')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: GymFlowColors.error),
+              const SizedBox(height: 16),
+              Text('Failed to load member', style: Theme.of(context).textTheme.bodyLarge),
+              const SizedBox(height: 8),
+              Text(_error!, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 16),
+              ElevatedButton(onPressed: _loadMember, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
     }
 
     final member = _member!;
@@ -247,6 +274,7 @@ class _AttendanceTabState extends ConsumerState<_AttendanceTab> {
   final _api = ApiService();
   List<dynamic> _records = [];
   bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -255,26 +283,49 @@ class _AttendanceTabState extends ConsumerState<_AttendanceTab> {
   }
 
   Future<void> _load() async {
+    setState(() => _isLoading = true);
     try {
       final data = await _api.getMemberAttendance(widget.userId);
-      setState(() => _records = data);
-    } catch (_) {}
+      setState(() {
+        _records = data['records'] ?? data;
+        _error = null;
+      });
+    } catch (e) {
+      setState(() => _error = e.toString());
+    }
     if (mounted) setState(() => _isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, color: GymFlowColors.error, size: 32),
+            const SizedBox(height: 8),
+            Text('Failed to load', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            TextButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
     if (_records.isEmpty) return const Center(child: Text('No attendance records'));
     return ListView.builder(
       itemCount: _records.length,
       itemBuilder: (c, i) {
         final r = _records[i];
+        final checkInStr = r['check_in']?.toString() ?? '';
+        final checkOutStr = r['check_out']?.toString() ?? '';
         return ListTile(
           leading: Icon(Icons.calendar_today, color: GymFlowColors.primary),
           title: Text(r['date'] ?? ''),
-          subtitle: Text('${r['check_in']?.toString().substring(11, 19) ?? ""} - ${r['check_out']?.toString().substring(11, 19) ?? "..."}'),
-          trailing: Text(r['method'] ?? ''),
+          subtitle: Text(
+            '${checkInStr.length >= 19 ? checkInStr.substring(11, 19) : checkInStr} - ${checkOutStr.length >= 19 ? checkOutStr.substring(11, 19) : '...'}'),
+          trailing: Text(r['method'] ?? '', style: const TextStyle(fontSize: 12)),
         );
       },
     );
@@ -291,8 +342,9 @@ class _PaymentsTab extends ConsumerStatefulWidget {
 
 class _PaymentsTabState extends ConsumerState<_PaymentsTab> {
   final _api = ApiService();
-  List<dynamic> _payments = [];
+  List<dynamic> _records = [];
   bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -301,29 +353,59 @@ class _PaymentsTabState extends ConsumerState<_PaymentsTab> {
   }
 
   Future<void> _load() async {
+    setState(() => _isLoading = true);
     try {
       final data = await _api.getMemberPayments(widget.userId);
-      setState(() => _payments = data);
-    } catch (_) {}
+      setState(() {
+        _records = data['payments'] ?? data;
+        _error = null;
+      });
+    } catch (e) {
+      setState(() => _error = e.toString());
+    }
     if (mounted) setState(() => _isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_payments.isEmpty) return const Center(child: Text('No payment records'));
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, color: GymFlowColors.error, size: 32),
+            const SizedBox(height: 8),
+            Text('Failed to load', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            TextButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    if (_records.isEmpty) return const Center(child: Text('No payment records'));
     return ListView.builder(
-      itemCount: _payments.length,
+      itemCount: _records.length,
       itemBuilder: (c, i) {
-        final p = _payments[i];
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: GymFlowColors.successBg,
-            child: Icon(Icons.check_circle, color: GymFlowColors.success, size: 20),
+        final r = _records[i];
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: ListTile(
+            leading: Icon(Icons.receipt, color: GymFlowColors.primary),
+            title: Text('₹${r['amount'] ?? 0}', style: Theme.of(context).textTheme.bodyLarge),
+            subtitle: Text(r['payment_date']?.toString().substring(0, 10) ?? ''),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: r['status'] == 'completed' ? GymFlowColors.successBg : GymFlowColors.warningBg,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(r['status'] ?? '', style: TextStyle(
+                fontSize: 12,
+                color: r['status'] == 'completed' ? GymFlowColors.success : GymFlowColors.warning,
+              )),
+            ),
           ),
-          title: Text('₹${p['amount']}'),
-          subtitle: Text(p['payment_date']?.toString().substring(0, 10) ?? ''),
-          trailing: Text(p['method'] ?? '', style: Theme.of(context).textTheme.bodySmall),
         );
       },
     );

@@ -8,6 +8,10 @@ class MockQueryBuilder {
     this._inserted = values;
     return this;
   }
+  upsert(values) {
+    this._inserted = values;
+    return this;
+  }
   update(values) {
     this._updated = values;
     return this;
@@ -92,6 +96,7 @@ function getMockData(table) {
     diet_plans: [{ id: uuid(90), user_id: uuid(2), gym_id: uuid(10), name: 'Weight Loss' }],
     progress: [{ id: uuid(100), user_id: uuid(2), gym_id: uuid(10), weight: 75, date: now.substring(0, 10) }],
     exercises: [{ id: uuid(110), name: 'Bench Press', muscle_group: 'Chest', gym_id: uuid(10) }],
+    exercise_library: [{ id: uuid(110), name: 'Bench Press', category: 'Strength', muscle_group: 'Chest', is_active: true, gym_id: uuid(10) }],
     settings: [{ id: uuid(120), gym_id: uuid(10), settings: { check_in_radius: 50 } }],
   };
   const data = mockSets[table] || [];
@@ -137,13 +142,12 @@ export function createClient(url, key) {
       },
     },
     from: (table) => new MockQueryBuilder(getMockData(table).data),
-    rpc: () => Promise.resolve({ data: {}, error: null }),
-    storage: {
-      from: () => ({
-        upload: () => Promise.resolve({ data: { path: 'test.jpg' }, error: null }),
-        getPublicUrl: () => ({ data: { publicUrl: 'https://test.com/test.jpg' } }),
-      }),
-    },
-  };
-  return client;
-}
+    rpc: jest.fn((fnName, params) => {
+      if (fnName === 'create_auth_user') {
+        return Promise.resolve({ data: 'test-user-id', error: null });
+      }
+      if (fnName === 'verify_auth_user') {
+        return Promise.resolve({ data: [{ user_id: 'test-user-id' }], error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    }),

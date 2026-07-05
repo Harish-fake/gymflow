@@ -1,62 +1,47 @@
-import { supabase } from '../config/supabase.js';
+import { verifyToken } from '../utils/jwt.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 export async function authenticate(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Missing or invalid authorization header' });
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
     }
 
     const token = authHeader.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-
-    if (error || !user) {
+    const decoded = verifyToken(token);
+    if (!decoded) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    const { data: dbUser, error: dbError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    const { data: user, error } = await supabaseAdmin
+      .from('users').select('*, user_profiles(*)').eq('id', decoded.sub).single();
 
-    if (dbError || !dbUser) {
-      return res.status(401).json({ error: 'User not found in database' });
+    if (error || !user) {
+      return res.status(401).json({ error: 'User not found' });
     }
 
-    if (!dbUser.is_active) {
+    if (!user.is_active) {
       return res.status(403).json({ error: 'Account deactivated' });
     }
 
-    req.user = dbUser;
-    req.token = token;
+    req.user = user;
+    req.token = decoded;
     next();
   } catch (err) {
-    console.error('Auth middleware error:', err);
-    return res.status(500).json({ error: 'Internal authentication error' });
+    console.error('Auth error:', err);
+    return res.status(500).json({ error: 'Authentication failed' });
   }
 }
 
-export function requireRole(...roles) {
+export function authorize(...roles) {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: `Required role: ${roles.join(' or ')}`,
-      });
+      return res.status(403).json({ error: 'Insufficient permissions' });
     }
     next();
   };
-}
-
-export function requireGymAccess(req, res, next) {
-  const gymId = req.params.gymId || req.body.gym_id || req.query.gym_id;
-  if (!gymId) {
-    return res.status(400).json({ error: 'Gym ID is required' });
-  }
-  req.gymId = gymId;
-  next();
 }

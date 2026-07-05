@@ -15,7 +15,8 @@
     "recharts": "^2.12.7",
     "axios": "^1.7.3",
     "lucide-react": "^0.422.0",
-    "date-fns": "^3.6.0"
+    "date-fns": "^3.6.0",
+    "react-hot-toast": "^2.4.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",

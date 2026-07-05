@@ -1,19 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, MoreVertical } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import toast from 'react-hot-toast';
+import { Plus, Edit, Trash2, Search } from 'lucide-react';
 import api from '../services/api';
 import Modal from '../components/Modal';
 
 export default function Trainers() {
   const [trainers, setTrainers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [editingTrainer, setEditingTrainer] = useState(null);
+  const [deletingTrainer, setDeletingTrainer] = useState(null);
   const [form, setForm] = useState({ email: '', full_name: '', phone: '', specialization: '' });
 
   useEffect(() => { loadTrainers(); }, []);
 
   async function loadTrainers() {
     try {
-      const data = await api.getTrainers();
+      const params = {};
+      if (search) params.search = search;
+      const data = await api.getTrainers(params);
       setTrainers(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
@@ -28,9 +36,54 @@ export default function Trainers() {
       await api.createTrainer(form);
       setShowAdd(false);
       setForm({ email: '', full_name: '', phone: '', specialization: '' });
+      toast.success('Trainer created');
       loadTrainers();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create');
+      toast.error(err.response?.data?.error || 'Failed to create');
+    }
+  };
+
+  const openEdit = (t) => {
+    setEditingTrainer(t);
+    setForm({
+      full_name: t.profile?.full_name || '',
+      email: t.user?.email || '',
+      phone: t.profile?.phone || '',
+      specialization: t.specialization || '',
+    });
+    setShowEdit(true);
+  };
+
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    if (!editingTrainer) return;
+    try {
+      await api.updateTrainer(editingTrainer.id, form);
+      setShowEdit(false);
+      setEditingTrainer(null);
+      setForm({ email: '', full_name: '', phone: '', specialization: '' });
+      toast.success('Trainer updated');
+      loadTrainers();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update');
+    }
+  };
+
+  const openDelete = (t) => {
+    setDeletingTrainer(t);
+    setShowDelete(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingTrainer) return;
+    try {
+      await api.deleteTrainer(deletingTrainer.id);
+      setShowDelete(false);
+      setDeletingTrainer(null);
+      toast.success('Trainer deleted');
+      loadTrainers();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete');
     }
   };
 
@@ -44,6 +97,12 @@ export default function Trainers() {
         <button onClick={() => setShowAdd(true)} className="btn-primary flex items-center gap-2">
           <Plus size={18} /> Add Trainer
         </button>
+      </div>
+
+      <div className="relative max-w-md">
+        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-dark-400" />
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search trainers..."
+          className="input-field pl-10" onKeyDown={(e) => e.key === 'Enter' && loadTrainers()} />
       </div>
 
       <div className="card overflow-hidden p-0">
@@ -83,7 +142,14 @@ export default function Trainers() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button className="text-dark-400 hover:text-white"><MoreVertical size={16} /></button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={() => openEdit(t)} className="text-dark-400 hover:text-primary-500 transition-colors" title="Edit">
+                            <Edit size={16} />
+                          </button>
+                          <button onClick={() => openDelete(t)} className="text-dark-400 hover:text-red-500 transition-colors" title="Delete">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -110,13 +176,46 @@ export default function Trainers() {
           </div>
           <div>
             <label className="block text-sm font-medium text-dark-300 mb-1">Specialization</label>
-            <input type="text" value={form.specialization} onChange={(e) => setForm({ ...form, specialization: e.target.value })} className="input-field" placeholder="e.g., Strength Training" />
+            <input type="text" value={form.specialization} onChange={(e) => setForm({ ...form, specialization: e.target.value })} className="input-field" />
           </div>
           <div className="flex gap-3 justify-end pt-2">
             <button type="button" onClick={() => setShowAdd(false)} className="btn-outline">Cancel</button>
-            <button type="submit" className="btn-primary">Create Trainer</button>
+            <button type="submit" className="btn-primary">Add Trainer</button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Edit Trainer">
+        <form onSubmit={handleEdit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-dark-300 mb-1">Full Name</label>
+            <input type="text" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className="input-field" required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-dark-300 mb-1">Email</label>
+            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input-field" required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-dark-300 mb-1">Phone</label>
+            <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-field" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-dark-300 mb-1">Specialization</label>
+            <input type="text" value={form.specialization} onChange={(e) => setForm({ ...form, specialization: e.target.value })} className="input-field" />
+          </div>
+          <div className="flex gap-3 justify-end pt-2">
+            <button type="button" onClick={() => setShowEdit(false)} className="btn-outline">Cancel</button>
+            <button type="submit" className="btn-primary">Update</button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={showDelete} onClose={() => setShowDelete(false)} title="Delete Trainer">
+        <p className="text-dark-300 mb-6">Are you sure you want to delete <strong className="text-white">{deletingTrainer?.profile?.full_name || 'this trainer'}</strong>? This action cannot be undone.</p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={() => setShowDelete(false)} className="btn-outline">Cancel</button>
+          <button onClick={handleDelete} className="bg-red-500 text-white px-4 py-2 rounded-xl hover:bg-red-600 transition-colors">Delete</button>
+        </div>
       </Modal>
     </div>
   );

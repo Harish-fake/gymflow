@@ -1,9 +1,14 @@
-process.env.NODE_ENV = 'test';
-process.env.SUPABASE_URL = 'https://test-project.supabase.co';
-process.env.SUPABASE_ANON_KEY = 'test-anon-key';
-process.env.SUPABASE_SERVICE_KEY = 'test-service-key';
-process.env.JWT_SECRET = 'test-jwt-secret';
-process.env.RAZORPAY_KEY_ID = 'test_key';
-process.env.RAZORPAY_KEY_SECRET = 'test_secret';
-process.env.FRONTEND_URL = 'http://localhost:5173';
-process.env.PORT = '0';
+import dotenv from 'dotenv';
+dotenv.config();
+
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret-key';
+process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://test.supabase.co';
+process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'test-anon-key';
+process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'test-service-key';
+
+export const adminToken = 'test-admin-token';
+export const trainerToken = 'test-trainer-token';
+export const memberToken = 'test-member-token';
+export const uuid = '00000000-0000-0000-0000-000000000001';
+
+export default { adminToken, trainerToken, memberToken, uuid };

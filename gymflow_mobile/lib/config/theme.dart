@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class GymFlowColors {
   static const Color primary = Color(0xFFFF6B35);
@@ -37,7 +36,6 @@ class GymFlowColors {
   static const Color qrOverlay = Color(0xCC000000);
   static const Color scaffoldBg = Color(0xFF0A0A14);
 
-  // Light theme colors
   static const Color lightBackground = Color(0xFFF8FAFC);
   static const Color lightSurface = Color(0xFFFFFFFF);
   static const Color lightSurfaceLight = Color(0xFFF1F5F9);
@@ -51,6 +49,8 @@ class GymFlowColors {
 }
 
 class GymFlowTheme {
+  static const _montserrat = 'Montserrat';
+
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
@@ -65,43 +65,14 @@ class GymFlowTheme {
         onSurface: GymFlowColors.lightTextPrimary,
       ),
       scaffoldBackgroundColor: GymFlowColors.lightScaffoldBg,
-      textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme).copyWith(
-        displayLarge: GoogleFonts.montserrat(
-          fontSize: 28, fontWeight: FontWeight.bold,
-          color: GymFlowColors.lightTextPrimary,
-        ),
-        displayMedium: GoogleFonts.montserrat(
-          fontSize: 24, fontWeight: FontWeight.bold,
-          color: GymFlowColors.lightTextPrimary,
-        ),
-        displaySmall: GoogleFonts.montserrat(
-          fontSize: 20, fontWeight: FontWeight.w600,
-          color: GymFlowColors.lightTextPrimary,
-        ),
-        headlineLarge: GoogleFonts.montserrat(
-          fontSize: 18, fontWeight: FontWeight.w600,
-          color: GymFlowColors.lightTextPrimary,
-        ),
-        bodyLarge: GoogleFonts.inter(
-          fontSize: 16, color: GymFlowColors.lightTextPrimary,
-        ),
-        bodyMedium: GoogleFonts.inter(
-          fontSize: 14, color: GymFlowColors.lightTextSecondary,
-        ),
-        bodySmall: GoogleFonts.inter(
-          fontSize: 12, color: GymFlowColors.lightTextMuted,
-        ),
-        labelLarge: GoogleFonts.inter(
-          fontSize: 14, fontWeight: FontWeight.w600,
-          color: GymFlowColors.lightTextPrimary,
-        ),
-      ),
+      textTheme: _buildLightTextTheme(),
       appBarTheme: AppBarTheme(
         backgroundColor: GymFlowColors.lightSurface,
         foregroundColor: GymFlowColors.lightTextPrimary,
         elevation: 0,
         centerTitle: true,
-        titleTextStyle: GoogleFonts.montserrat(
+        titleTextStyle: const TextStyle(
+          fontFamily: _montserrat,
           fontSize: 18, fontWeight: FontWeight.w600,
           color: GymFlowColors.lightTextPrimary,
         ),
@@ -129,7 +100,7 @@ class GymFlowTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          textStyle: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           elevation: 0,
         ),
       ),
@@ -207,53 +178,15 @@ class GymFlowTheme {
         onSurface: GymFlowColors.textPrimary,
       ),
       scaffoldBackgroundColor: GymFlowColors.scaffoldBg,
-      textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme).copyWith(
-        displayLarge: GoogleFonts.montserrat(
-          fontSize: 28,
-          fontWeight: FontWeight.bold,
-          color: GymFlowColors.textPrimary,
-        ),
-        displayMedium: GoogleFonts.montserrat(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: GymFlowColors.textPrimary,
-        ),
-        displaySmall: GoogleFonts.montserrat(
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-          color: GymFlowColors.textPrimary,
-        ),
-        headlineLarge: GoogleFonts.montserrat(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: GymFlowColors.textPrimary,
-        ),
-        bodyLarge: GoogleFonts.inter(
-          fontSize: 16,
-          color: GymFlowColors.textPrimary,
-        ),
-        bodyMedium: GoogleFonts.inter(
-          fontSize: 14,
-          color: GymFlowColors.textSecondary,
-        ),
-        bodySmall: GoogleFonts.inter(
-          fontSize: 12,
-          color: GymFlowColors.textMuted,
-        ),
-        labelLarge: GoogleFonts.inter(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          color: GymFlowColors.textPrimary,
-        ),
-      ),
+      textTheme: _buildDarkTextTheme(),
       appBarTheme: AppBarTheme(
         backgroundColor: GymFlowColors.background,
         foregroundColor: GymFlowColors.textPrimary,
         elevation: 0,
         centerTitle: true,
-        titleTextStyle: GoogleFonts.montserrat(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
+        titleTextStyle: const TextStyle(
+          fontFamily: _montserrat,
+          fontSize: 18, fontWeight: FontWeight.w600,
           color: GymFlowColors.textPrimary,
         ),
       ),
@@ -280,10 +213,7 @@ class GymFlowTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          textStyle: GoogleFonts.inter(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           elevation: 0,
         ),
       ),
@@ -321,8 +251,7 @@ class GymFlowTheme {
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
       dividerTheme: const DividerThemeData(
-        color: GymFlowColors.divider,
-        thickness: 1,
+        color: GymFlowColors.divider, thickness: 1,
       ),
       chipTheme: ChipThemeData(
         backgroundColor: GymFlowColors.surfaceLight,
@@ -347,4 +276,81 @@ class GymFlowTheme {
       ),
     );
   }
+
+  static TextTheme _buildLightTextTheme() {
+    return TextTheme(
+      displayLarge: const TextStyle(
+        fontFamily: _montserrat,
+        fontSize: 28, fontWeight: FontWeight.bold,
+        color: GymFlowColors.lightTextPrimary,
+      ),
+      displayMedium: const TextStyle(
+        fontFamily: _montserrat,
+        fontSize: 24, fontWeight: FontWeight.bold,
+        color: GymFlowColors.lightTextPrimary,
+      ),
+      displaySmall: const TextStyle(
+        fontFamily: _montserrat,
+        fontSize: 20, fontWeight: FontWeight.w600,
+        color: GymFlowColors.lightTextPrimary,
+      ),
+      headlineLarge: const TextStyle(
+        fontFamily: _montserrat,
+        fontSize: 18, fontWeight: FontWeight.w600,
+        color: GymFlowColors.lightTextPrimary,
+      ),
+      bodyLarge: const TextStyle(
+        fontSize: 16, color: GymFlowColors.lightTextPrimary,
+      ),
+      bodyMedium: const TextStyle(
+        fontSize: 14, color: GymFlowColors.lightTextSecondary,
+      ),
+      bodySmall: const TextStyle(
+        fontSize: 12, color: GymFlowColors.lightTextMuted,
+      ),
+      labelLarge: const TextStyle(
+        fontSize: 14, fontWeight: FontWeight.w600,
+        color: GymFlowColors.lightTextPrimary,
+      ),
+    );
+  }
+
+  static TextTheme _buildDarkTextTheme() {
+    return TextTheme(
+      displayLarge: const TextStyle(
+        fontFamily: _montserrat,
+        fontSize: 28, fontWeight: FontWeight.bold,
+        color: GymFlowColors.textPrimary,
+      ),
+      displayMedium: const TextStyle(
+        fontFamily: _montserrat,
+        fontSize: 24, fontWeight: FontWeight.bold,
+        color: GymFlowColors.textPrimary,
+      ),
+      displaySmall: const TextStyle(
+        fontFamily: _montserrat,
+        fontSize: 20, fontWeight: FontWeight.w600,
+        color: GymFlowColors.textPrimary,
+      ),
+      headlineLarge: const TextStyle(
+        fontFamily: _montserrat,
+        fontSize: 18, fontWeight: FontWeight.w600,
+        color: GymFlowColors.textPrimary,
+      ),
+      bodyLarge: const TextStyle(
+        fontSize: 16, color: GymFlowColors.textPrimary,
+      ),
+      bodyMedium: const TextStyle(
+        fontSize: 14, color: GymFlowColors.textSecondary,
+      ),
+      bodySmall: const TextStyle(
+        fontSize: 12, color: GymFlowColors.textMuted,
+      ),
+      labelLarge: const TextStyle(
+        fontSize: 14, fontWeight: FontWeight.w600,
+        color: GymFlowColors.textPrimary,
+      );
+    );
+  }
+
 }

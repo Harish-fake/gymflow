@@ -165,8 +165,8 @@ GoRouter createRouter(Ref ref) {
       }
 
       if (!isLoggedIn && !isOnAuthPage) return '/login';
-      if (isLoggedIn && isOnAuthPage) return _getDefaultRoute(authState.role);
-      if (isLoggedIn && isOnSplash) return _getDefaultRoute(authState.role);
+      if (isLoggedIn && isOnAuthPage) return _getDefaultRoute(authState);
+      if (isLoggedIn && isOnSplash) return _getDefaultRoute(authState);
 
       return null;
     },
@@ -175,8 +175,11 @@ GoRouter createRouter(Ref ref) {
 
 final ValueNotifier<int> _authRefreshNotifier = ValueNotifier(0);
 
-String _getDefaultRoute(String? role) {
-  switch (role) {
+String _getDefaultRoute(AuthState authState) {
+  if (authState.gyms.isEmpty || authState.selectedGymId == null) {
+    return '/gym-selection';
+  }
+  switch (authState.role) {
     case 'admin':
     case 'superadmin':
       return '/admin/dashboard';
@@ -185,6 +188,6 @@ String _getDefaultRoute(String? role) {
     case 'member':
       return '/member/dashboard';
     default:
-      return '/gym-selection';
+      return '/member/dashboard';
   }
 }

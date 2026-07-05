@@ -1,11 +1,11 @@
-import { supabase } from '../config/supabase.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 export async function listWorkouts(req, res) {
   try {
     const { member_id, gym_id, date, page = 1, limit = 20 } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    let query = supabase.from('workouts').select('*, trainer:users!trainer_id(id, email), trainer_profile:user_profiles!trainer_id(full_name)');
+    let query = supabaseAdmin.from('workouts').select('*, trainer:users!trainer_id(id, email)');
 
     if (targetGym) query = query.eq('gym_id', targetGym);
     if (member_id) query = query.eq('member_id', member_id);
@@ -25,7 +25,23 @@ export async function listWorkouts(req, res) {
     const { data: workouts, error } = await query;
     if (error) throw error;
 
-    return res.json(workouts || []);
+    const trainerIds = [...new Set(workouts?.map(w => w.trainer_id).filter(Boolean) || [])];
+    let trainerProfiles = [];
+    if (trainerIds.length > 0) {
+      const { data: p } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .in('user_id', trainerIds);
+      trainerProfiles = p || [];
+    }
+    const tMap = {};
+    trainerProfiles.forEach(prof => { tMap[prof.user_id] = prof; });
+    const result = (workouts || []).map(item => ({
+      ...item,
+      trainer_profile: tMap[item.trainer_id] || null,
+    }));
+
+    return res.json(result);
   } catch (err) {
     console.error('List workouts error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -36,18 +52,35 @@ export async function getWorkout(req, res) {
   try {
     const { id } = req.params;
 
-    const { data: workout, error } = await supabase
+    const { data: workout, error } = await supabaseAdmin
       .from('workouts')
-      .select('*, trainer:users!trainer_id(id, email), trainer_profile:user_profiles!trainer_id(full_name), member:users!member_id(id, email), member_profile:user_profiles!member_id(full_name)')
+      .select('*, trainer:users!trainer_id(id, email), member:users!member_id(id, email)')
       .eq('id', id)
       .single();
 
     if (error) return res.status(404).json({ error: 'Workout not found' });
 
+    if (workout?.trainer_id) {
+      const { data: tp } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', workout.trainer_id)
+        .single();
+      workout.trainer_profile = tp || null;
+    }
+    if (workout?.member_id) {
+      const { data: mp } = await supabaseAdmin
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', workout.member_id)
+        .single();
+      workout.member_profile = mp || null;
+    }
+
     const exercisesWithDetails = [];
     if (workout.exercises?.length) {
       for (const ex of workout.exercises) {
-        const { data: exercise } = await supabase.from('exercise_library').select('*').eq('id', ex.exercise_id).single();
+        const { data: exercise } = await supabaseAdmin.from('exercise_library').select('*').eq('id', ex.exercise_id).single();
         exercisesWithDetails.push({ ...ex, exercise_details: exercise || null });
       }
     }
@@ -64,7 +97,7 @@ export async function createWorkout(req, res) {
     const { gym_id, member_id, name, description, day_of_week, schedule_date, exercises } = req.validated.body;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    const { data: workout, error } = await supabase.from('workouts').insert({
+    const { data: workout, error } = await supabaseAdmin.from('workouts').insert({
       gym_id: targetGym,
       trainer_id: req.user.id,
       member_id,
@@ -92,7 +125,7 @@ export async function updateWorkout(req, res) {
     delete updates.id;
     delete updates.created_at;
 
-    const { data: workout, error } = await supabase
+    const { data: workout, error } = await supabaseAdmin
       .from('workouts')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', id)
@@ -112,7 +145,7 @@ export async function deleteWorkout(req, res) {
   try {
     const { id } = req.params;
 
-    const { error } = await supabase.from('workouts').delete().eq('id', id);
+    const { error } = await supabaseAdmin.from('workouts').delete().eq('id', id);
     if (error) return res.status(400).json({ error: error.message });
 
     return res.json({ message: 'Workout deleted' });
@@ -126,7 +159,7 @@ export async function completeWorkout(req, res) {
   try {
     const { id } = req.params;
 
-    const { data: workout, error } = await supabase
+    const { data: workout, error } = await supabaseAdmin
       .from('workouts')
       .update({ is_completed: true, completed_at: new Date().toISOString() })
       .eq('id', id)
@@ -147,7 +180,7 @@ export async function listExercises(req, res) {
     const { gym_id, category } = req.query;
     const targetGym = gym_id || req.user.selected_gym_id;
 
-    let query = supabase.from('exercise_library').select('*').eq('is_active', true);
+    let query = supabaseAdmin.from('exercise_library').select('*').eq('is_active', true);
 
     if (targetGym) query = query.eq('gym_id', targetGym);
     if (category) query = query.eq('category', category);
@@ -164,23 +197,22 @@ export async function listExercises(req, res) {
 
 export async function createExercise(req, res) {
   try {
-    const { gym_id, name, category, description, video_url, sets_reps, equipment_needed } = req.body;
+    const { name, category, video_url, equipment_needed } = req.body;
+    const gymId = req.user.selected_gym_id;
 
-    const { data: exercise, error } = await supabase.from('exercise_library').insert({
-      gym_id: gym_id || req.user.selected_gym_id,
-      name,
-      category,
-      description: description || null,
-      video_url: video_url || null,
-      sets_reps: sets_reps || [],
-      equipment_needed: equipment_needed || [],
-    }).select().single();
+    if (!gymId) return res.status(400).json({ error: 'Gym ID is required' });
 
-    if (error) return res.status(400).json({ error: error.message });
+    const { data, error } = await supabaseAdmin
+      .from('exercise_library')
+      .insert({ gym_id: gymId, name, category, video_url, equipment_needed: equipment_needed || [] })
+      .select()
+      .single();
 
-    return res.status(201).json(exercise);
+    if (error) throw error;
+
+    return res.status(201).json({ message: 'Exercise created', data });
   } catch (err) {
     console.error('Create exercise error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: err.message });
   }
 }

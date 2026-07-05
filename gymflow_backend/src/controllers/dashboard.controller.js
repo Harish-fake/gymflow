@@ -1,20 +1,20 @@
-import { supabase } from '../config/supabase.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 export async function adminDashboard(req, res) {
   try {
     const gymId = req.query.gym_id || req.user.selected_gym_id;
 
     if (!gymId) {
-      return res.status(400).json({ error: 'No gym selected' });
+      return res.json({ stats: {}, revenue_chart: [], recent_payments: [], expiring_memberships: [], membership_distribution: [] });
     }
 
-    const { data: stats } = await supabase.rpc('get_admin_dashboard_stats', { p_gym_id: gymId });
+    const { data: stats } = await supabaseAdmin.rpc('get_admin_dashboard_stats', { p_gym_id: gymId });
 
     const now = new Date();
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const { data: revenueData } = await supabase
+    const { data: revenueData } = await supabaseAdmin
       .from('payments')
       .select('amount, payment_date')
       .eq('gym_id', gymId)
@@ -28,23 +28,49 @@ export async function adminDashboard(req, res) {
       monthlyRevenue[month] = (monthlyRevenue[month] || 0) + Number(p.amount);
     });
 
-    const { data: recentPayments } = await supabase
+    const { data: recentPayments } = await supabaseAdmin
       .from('payments')
-      .select('*, user:users(id, email), profile:user_profiles!user_id(full_name), plan:membership_plans(name)')
+      .select('*, user:users!user_id(id, email), plan:membership_plans(name)')
       .eq('gym_id', gymId)
       .order('payment_date', { ascending: false })
       .limit(5);
 
-    const { data: expiring } = await supabase
+    if (recentPayments) {
+      const rpIds = [...new Set(recentPayments.map(p => p.user_id).filter(Boolean))];
+      if (rpIds.length > 0) {
+        const { data: rpProfiles } = await supabaseAdmin
+          .from('user_profiles')
+          .select('*')
+          .in('user_id', rpIds);
+        const rpMap = {};
+        (rpProfiles || []).forEach(prof => { rpMap[prof.user_id] = prof; });
+        recentPayments.forEach(p => { p.profile = rpMap[p.user_id] || null; });
+      }
+    }
+
+    const { data: expiring } = await supabaseAdmin
       .from('members')
-      .select('id, end_date, user:users(id, email), profile:user_profiles!user_id(full_name)')
+      .select('id, end_date, user:users!user_id(id, email)')
       .eq('gym_id', gymId)
       .eq('status', 'active')
       .gte('end_date', now.toISOString().split('T')[0])
       .lte('end_date', new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
       .limit(10);
 
-    const { data: planDistribution } = await supabase
+    if (expiring) {
+      const expIds = [...new Set(expiring.map(m => m.user_id).filter(Boolean))];
+      if (expIds.length > 0) {
+        const { data: expProfiles } = await supabaseAdmin
+          .from('user_profiles')
+          .select('*')
+          .in('user_id', expIds);
+        const expMap = {};
+        (expProfiles || []).forEach(prof => { expMap[prof.user_id] = prof; });
+        expiring.forEach(m => { m.profile = expMap[m.user_id] || null; });
+      }
+    }
+
+    const { data: planDistribution } = await supabaseAdmin
       .from('members')
       .select('plan:membership_plans(name)')
       .eq('gym_id', gymId)
@@ -73,86 +99,125 @@ export async function trainerDashboard(req, res) {
   try {
     const gymId = req.query.gym_id || req.user.selected_gym_id;
 
-    const { data: stats } = await supabase.rpc('get_trainer_dashboard_stats', {
+    const { data: stats } = await supabaseAdmin.rpc('get_trainer_dashboard_stats', {
       p_user_id: req.user.id,
       p_gym_id: gymId,
     });
 
-    const { data: assignedMembers } = await supabase
+    const { data: assignedMembers } = await supabaseAdmin
       .from('members')
-      .select('id, status, end_date, user:users(id, email), profile:user_profiles!user_id(full_name, photo_url)')
+      .select('id, status, end_date, user:users!user_id(id, email)')
       .eq('assigned_trainer_id', req.user.id)
       .eq('gym_id', gymId);
 
+    if (assignedMembers) {
+      const amIds = [...new Set(assignedMembers.map(m => m.user_id).filter(Boolean))];
+      if (amIds.length > 0) {
+        const { data: amProfiles } = await supabaseAdmin
+          .from('user_profiles')
+          .select('*')
+          .in('user_id', amIds);
+        const amMap = {};
+        (amProfiles || []).forEach(prof => { amMap[prof.user_id] = prof; });
+        assignedMembers.forEach(m => { m.profile = amMap[m.user_id] || null; });
+      }
+    }
+
     const today = new Date().toISOString().split('T')[0];
 
-    const { data: todaySchedule } = await supabase
+    const { data: todaySchedule } = await supabaseAdmin
       .from('workouts')
-      .select('*, member:users!member_id(id, email), member_profile:user_profiles!member_id(full_name)')
+      .select('*, member:users!member_id(id, email)')
       .eq('trainer_id', req.user.id)
       .eq('gym_id', gymId)
       .eq('schedule_date', today);
+
+    if (todaySchedule) {
+      const tsIds = [...new Set(todaySchedule.map(w => w.member_id).filter(Boolean))];
+      if (tsIds.length > 0) {
+        const { data: tsProfiles } = await supabaseAdmin
+          .from('user_profiles')
+          .select('*')
+          .in('user_id', tsIds);
+        const tsMap = {};
+        (tsProfiles || []).forEach(prof => { tsMap[prof.user_id] = prof; });
+        todaySchedule.forEach(w => { w.member_profile = tsMap[w.member_id] || null; });
+      }
+    }
 
     const activeMembers = assignedMembers?.filter((m) => m.status === 'active').length || 0;
 
     return res.json({
       stats: stats || { assigned_members: activeMembers },
-      assigned_members: assignedMembers || [],
-      today_schedule: todaySchedule || [],
+      stats: {
+        totalMembers: totalMembers || 0,
+        todayAttendance,
+        pendingWorkouts: workouts?.filter(w => !w.is_completed).length || 0,
+      },
+      members: members?.map(m => ({
+        id: m.user_id,
+        name: m.user?.user_profiles?.full_name || 'Unknown',
+        email: m.user?.email,
+        status: m.status,
+        end_date: m.end_date,
+      })) || [],
+      recentWorkouts: workouts || [],
     });
   } catch (err) {
     console.error('Trainer dashboard error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: err.message });
   }
 }
 
 export async function memberDashboard(req, res) {
   try {
-    const gymId = req.query.gym_id || req.user.selected_gym_id;
+    const { gym_id } = req.query;
+    const gymId = gym_id || req.user.selected_gym_id;
 
-    const { data: stats } = await supabase.rpc('get_member_dashboard_stats', {
-      p_user_id: req.user.id,
-      p_gym_id: gymId,
-    });
-
-    const { data: member } = await supabase
+    const { data: member } = await supabaseAdmin
       .from('members')
-      .select('*, plan:membership_plans(*), trainer:users!assigned_trainer_id(id, email), trainer_profile:user_profiles!assigned_trainer_id(full_name)')
+      .select('*, membership_plans(*), trainer:users!members_assigned_trainer_id_fkey(id, user_profiles(full_name))')
       .eq('user_id', req.user.id)
       .eq('gym_id', gymId)
       .single();
 
     const today = new Date().toISOString().split('T')[0];
+    
+    const { data: attendance } = await supabaseAdmin
+      .from('attendance')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .eq('gym_id', gymId)
+      .order('date', { ascending: false })
+      .limit(30);
 
-    const { data: todayWorkout } = await supabase
+    const checkedInToday = attendance?.some(a => a.date === today && !a.check_out) || false;
+
+    const { data: workouts } = await supabaseAdmin
       .from('workouts')
       .select('*')
       .eq('member_id', req.user.id)
-      .eq('schedule_date', today);
+      .eq('gym_id', gymId)
+      .order('schedule_date', { ascending: false })
+      .limit(5);
 
-    const { data: recentProgress } = await supabase
+    const { data: progress } = await supabaseAdmin
       .from('progress_logs')
       .select('*')
       .eq('member_id', req.user.id)
       .order('date', { ascending: false })
       .limit(5);
 
-    const { data: upcomingPayments } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('user_id', req.user.id)
-      .eq('status', 'pending')
-      .order('payment_date', { ascending: false });
-
     return res.json({
-      stats: stats || {},
-      member: member || {},
-      today_workout: todayWorkout || [],
-      recent_progress: recentProgress || [],
-      upcoming_payments: upcomingPayments || [],
+      membership: member || null,
+      checkedInToday,
+      recentAttendance: attendance?.filter(a => a.date !== today).slice(0, 10) || [],
+      todayRecord: attendance?.find(a => a.date === today) || null,
+      upcomingWorkouts: workouts?.filter(w => !w.is_completed) || [],
+      recentProgress: progress || [],
     });
   } catch (err) {
     console.error('Member dashboard error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: err.message });
   }
 }

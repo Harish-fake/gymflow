@@ -2,6 +2,43 @@ import axios from 'axios';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+const cache = new Map();
+const inflight = new Map();
+const CACHE_TTL = 10 * 60 * 1000;
+
+function cacheKey(method, url, params) {
+  return `${method}:${url}:${JSON.stringify(params || {})}`;
+}
+
+function dedupe(method, url, config) {
+  const key = cacheKey(method, url, config.params);
+
+  if (method === 'get') {
+    const cached = cache.get(key);
+    if (cached && Date.now() < cached.expiry) {
+      return Promise.resolve({ data: cached.data });
+    }
+
+    if (inflight.has(key)) {
+      return inflight.get(key);
+    }
+
+    const promise = apiClient({ method, url, ...config }).then((res) => {
+      cache.set(key, { data: res.data, expiry: Date.now() + CACHE_TTL });
+      inflight.delete(key);
+      return res;
+    }).catch((err) => {
+      inflight.delete(key);
+      throw err;
+    });
+
+    inflight.set(key, promise);
+    return promise;
+  }
+
+  return apiClient({ method, url, ...config });
+}
+
 const apiClient = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
@@ -24,26 +61,40 @@ apiClient.interceptors.response.use(
   }
 );
 
+let warmedUp = false;
+async function warmUp() {
+  if (warmedUp) return;
+  warmedUp = true;
+  try {
+    await apiClient.get('/health', { timeout: 5000 });
+  } catch (_) {}
+}
+
+function get(url, config = {}) {
+  return dedupe('get', url, config).then((r) => r.data);
+}
+
 const api = {
-  // Auth
+  warmUp,
+
   login: (email, password) =>
-    apiClient.post('/auth/login', { email, password }).then((r) => r.data),
+    apiClient.post('/auth/login', { email, password }).then((r) => {
+      warmUp();
+      return r.data;
+    }),
+  register: (data) =>
+    apiClient.post('/auth/register', data).then((r) => r.data),
   forgotPassword: (email) =>
     apiClient.post('/auth/forgot-password', { email }).then((r) => r.data),
-  getProfile: () =>
-    apiClient.get('/users/me').then((r) => r.data),
+  getProfile: () => get('/users/me'),
 
-  // Dashboard
   getAdminDashboard: (gymId) =>
-    apiClient.get('/dashboard/admin', { params: { gym_id: gymId } }).then((r) => r.data),
+    get('/dashboard/admin', { params: { gym_id: gymId } }),
   getTrainerDashboard: (gymId) =>
-    apiClient.get('/dashboard/trainer', { params: { gym_id: gymId } }).then((r) => r.data),
+    get('/dashboard/trainer', { params: { gym_id: gymId } }),
 
-  // Members
-  getMembers: (params) =>
-    apiClient.get('/members', { params }).then((r) => r.data),
-  getMember: (id) =>
-    apiClient.get(`/members/${id}`).then((r) => r.data),
+  getMembers: (params) => get('/members', { params }),
+  getMember: (id) => get(`/members/${id}`),
   createMember: (data) =>
     apiClient.post('/members', data).then((r) => r.data),
   updateMember: (id, data) =>
@@ -53,23 +104,17 @@ const api = {
   renewMembership: (id, data) =>
     apiClient.post(`/members/${id}/renew`, data).then((r) => r.data),
 
-  // Trainers
-  getTrainers: (params) =>
-    apiClient.get('/trainers', { params }).then((r) => r.data),
-  getTrainer: (id) =>
-    apiClient.get(`/trainers/${id}`).then((r) => r.data),
+  getTrainers: (params) => get('/trainers', { params }),
+  getTrainer: (id) => get(`/trainers/${id}`),
   createTrainer: (data) =>
     apiClient.post('/trainers', data).then((r) => r.data),
   updateTrainer: (id, data) =>
     apiClient.put(`/trainers/${id}`, data).then((r) => r.data),
   deleteTrainer: (id) =>
     apiClient.delete(`/trainers/${id}`).then((r) => r.data),
-  getTrainerMembers: (id) =>
-    apiClient.get(`/trainers/${id}/members`).then((r) => r.data),
+  getTrainerMembers: (id) => get(`/trainers/${id}/members`),
 
-  // Plans
-  getPlans: (params) =>
-    apiClient.get('/membership-plans', { params }).then((r) => r.data),
+  getPlans: (params) => get('/membership-plans', { params }),
   createPlan: (data) =>
     apiClient.post('/membership-plans', data).then((r) => r.data),
   updatePlan: (id, data) =>
@@ -77,71 +122,55 @@ const api = {
   deletePlan: (id) =>
     apiClient.delete(`/membership-plans/${id}`).then((r) => r.data),
 
-  // Attendance
-  getAttendance: (params) =>
-    apiClient.get('/attendance', { params }).then((r) => r.data),
-  getTodayAttendance: (params) =>
-    apiClient.get('/attendance/today', { params }).then((r) => r.data),
+  getAttendance: (params) => get('/attendance', { params }),
+  getTodayAttendance: (params) => get('/attendance/today', { params }),
   checkIn: (data) =>
     apiClient.post('/attendance/check-in', data).then((r) => r.data),
   checkOut: (id) =>
     apiClient.put(`/attendance/${id}/check-out`).then((r) => r.data),
-  getAttendanceQR: (params) =>
-    apiClient.get('/attendance/qr', { params }).then((r) => r.data),
+  getAttendanceQR: (params) => get('/attendance/qr', { params }),
 
-  // Payments
-  getPayments: (params) =>
-    apiClient.get('/payments', { params }).then((r) => r.data),
+  getPayments: (params) => get('/payments', { params }),
   createPayment: (data) =>
     apiClient.post('/payments', data).then((r) => r.data),
-  getPaymentReport: (params) =>
-    apiClient.get('/payments/report', { params }).then((r) => r.data),
+  getPaymentReport: (params) => get('/payments/report', { params }),
 
-  // Workouts
-  getWorkouts: (params) =>
-    apiClient.get('/workouts', { params }).then((r) => r.data),
+  getWorkouts: (params) => get('/workouts', { params }),
   createWorkout: (data) =>
     apiClient.post('/workouts', data).then((r) => r.data),
-  getExercises: (params) =>
-    apiClient.get('/workouts/exercises/list', { params }).then((r) => r.data),
+  updateWorkout: (id, data) =>
+    apiClient.put(`/workouts/${id}`, data).then((r) => r.data),
+  deleteWorkout: (id) =>
+    apiClient.delete(`/workouts/${id}`).then((r) => r.data),
+  getExercises: (params) => get('/workouts/exercises/list', { params }),
   createExercise: (data) =>
     apiClient.post('/workouts/exercises', data).then((r) => r.data),
 
-  // Diets
-  getDiets: (params) =>
-    apiClient.get('/diet-plans', { params }).then((r) => r.data),
+  getDiets: (params) => get('/diet-plans', { params }),
   createDiet: (data) =>
     apiClient.post('/diet-plans', data).then((r) => r.data),
 
-  // Notifications
-  getNotifications: (params) =>
-    apiClient.get('/notifications', { params }).then((r) => r.data),
+  getNotifications: (params) => get('/notifications', { params }),
   sendNotification: (data) =>
     apiClient.post('/notifications', data).then((r) => r.data),
   sendBulkNotification: (data) =>
     apiClient.post('/notifications/bulk', data).then((r) => r.data),
   markNotificationRead: (id) =>
     apiClient.put(`/notifications/${id}/read`).then((r) => r.data),
+  deleteNotification: (id) =>
+    apiClient.delete(`/notifications/${id}`).then((r) => r.data),
 
-  // Reports
-  getRevenueReport: (params) =>
-    apiClient.get('/reports/revenue', { params }).then((r) => r.data),
-  getAttendanceReport: (params) =>
-    apiClient.get('/reports/attendance', { params }).then((r) => r.data),
-  getMembershipReport: (params) =>
-    apiClient.get('/reports/membership', { params }).then((r) => r.data),
-  getMemberGrowth: (params) =>
-    apiClient.get('/reports/member-growth', { params }).then((r) => r.data),
+  getRevenueReport: (params) => get('/reports/revenue', { params }),
+  getAttendanceReport: (params) => get('/reports/attendance', { params }),
+  getMembershipReport: (params) => get('/reports/membership', { params }),
+  getMemberGrowth: (params) => get('/reports/member-growth', { params }),
   getTrainerPerformance: (params) =>
-    apiClient.get('/reports/trainer-performance', { params }).then((r) => r.data),
+    get('/reports/trainer-performance', { params }),
 
-  // Settings
-  getSettings: (params) =>
-    apiClient.get('/settings', { params }).then((r) => r.data),
+  getSettings: (params) => get('/settings', { params }),
   updateSettings: (data) =>
     apiClient.put('/settings', data).then((r) => r.data),
 
-  // Export
   exportReport: async (type, format) => {
     const response = await apiClient.get(`/reports/export/${type}`, {
       params: { format },
@@ -159,23 +188,23 @@ const api = {
     return response.data;
   },
 
-  // Invoice
   downloadInvoice: async (id) => {
     const response = await apiClient.get(`/payments/${id}/invoice/download`, {
       responseType: 'blob',
     });
-    const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+    const url = window.URL.createObjectURL(new Blob([response.data]));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `invoice-${id.substring(0, 8)}.pdf`;
+    a.download = `invoice-${id}.pdf`;
     a.click();
     window.URL.revokeObjectURL(url);
     return { success: true };
   },
 
-  // Gyms
-  getGyms: () => apiClient.get('/gyms').then((r) => r.data),
-  selectGym: (id) => apiClient.post(`/gyms/${id}/select`).then((r) => r.data),
+  clearCache: () => {
+    cache.clear();
+    inflight.clear();
+  },
 };
 
 export default api;
